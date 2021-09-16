@@ -1,8 +1,8 @@
-use crate::byteparser::ByteParser;
+use crate::parse::byteparser::ByteParser;
 use crate::conv::{ToBinary, FromBinary, Encode, Decode};
 
 pub fn decode_u8(input : &str) -> u8 {
-    let p = ByteParser::parse(input).unwrap();
+    let p = ByteParser::parse(input);
     p.get_uint8().unwrap()
 }
 
