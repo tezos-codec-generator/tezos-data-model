@@ -1,21 +1,25 @@
+use crate::parse::byteparser::{ByteParser, ToParser};
+
 pub trait ToBinary {
     fn bin_encode(&self) -> String;
 }
 
 pub trait FromBinary {
-    fn bin_decode(inp : &str) -> Self;
+    fn bin_decode(inp: &str) -> Self;
 }
 
 pub trait Encode<U> {
     fn encode(&self) -> U;
 }
 
-pub trait Decode<T> {
-    fn decode(&self) -> T;
+pub trait Decode<U> {
+    fn decode(inp: U) -> Self;
 }
 
-/*
-impl<T> ToBinary for Option<T> where T: ToBinary {
+impl<T> ToBinary for Option<T>
+where
+    T: ToBinary,
+{
     fn bin_encode(&self) -> String {
         match &self {
             Some(val) => T::bin_encode(val),
@@ -24,6 +28,7 @@ impl<T> ToBinary for Option<T> where T: ToBinary {
     }
 }
 
+/*
 impl<T> FromBinary for Option<T> where T: FromBinary {
     fn bin_decode(inp: &str) -> Self {
         match crate::byteparser::ByteParser::parse(inp) {
@@ -38,9 +43,13 @@ impl<T> FromBinary for Option<T> where T: FromBinary {
         }
     }
 }
+*/
 
-impl<T> Encode<String> for Option<T> where T: Encode<String> {
-    fn encode(&self) -> String { 
+impl<T> Encode<String> for Option<T>
+where
+    T: Encode<String>,
+{
+    fn encode(&self) -> String {
         match self {
             Some(val) => val.encode(),
             None => String::from("00"),
@@ -48,22 +57,20 @@ impl<T> Encode<String> for Option<T> where T: Encode<String> {
     }
 }
 
-impl<T, U> Decode<Option<T>> for U where
-U: Decode<T> + Decode<bool> {
-    fn decode(&self) -> Option<T> {
-        if self.decode() {
-            // this has not been implemented sufficiently to define
-        }
-        match crate::byteparser::ByteParser::parse(inp) {
-            Ok(p) => {
-                match p.get_bool() {
-                    Ok(true) => Some(T::bin_decode(&self[1..])),
-                    Ok(false) => None,
-                    Err(err) => std::panic!("{}", err),
-                }
-            },
-            Err(err) => std::panic!("{}", err),
+impl<T, U> Decode<U> for Option<T>
+where
+    U: ToParser,
+    T: Decode<ByteParser>
+{
+    fn decode(inp: U) -> Self {
+        let p = inp.to_parser();
+
+        if p.get_bool()
+            .expect("Derived Decode::decode for Option<…> encountered error reading leading byte")
+        {
+            Some(T::decode(p))
+        } else {
+            None
         }
     }
 }
-*/

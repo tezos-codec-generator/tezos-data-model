@@ -1,5 +1,5 @@
 mod parse;
-mod integral;
+mod prim;
 mod conv;
 
 pub use crate::parse::byteparser::ByteParser;

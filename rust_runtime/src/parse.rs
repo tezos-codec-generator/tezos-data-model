@@ -72,7 +72,6 @@ pub mod errors {
 }
 
 pub mod bytes {
-
     use super::errors::ConvError::{HexError, ParityError};
     use std::convert::TryFrom;
     use std::num::ParseIntError;
@@ -110,6 +109,10 @@ pub mod bytes {
             &self.0[ix..ix + len]
         }
 
+        pub unsafe fn get_word(&self, ix: usize) -> &u8 {
+            &self.0[ix]
+        }
+
         pub fn len(&self) -> usize {
             self.0.len()
         }
@@ -118,40 +121,38 @@ pub mod bytes {
 
 pub mod byteparser {
     use super::bytes::Bytes;
-    use super::errors::{ConvError, InternalErrorKind, ParseError};
-    use core::panic;
+    use super::errors::ParseError;
     use std::cell::Cell;
-    use std::convert::{TryFrom, TryInto};
-    use std::fmt::Display;
+    use std::convert::TryFrom;
 
     pub struct ByteParser {
         _buf: Bytes,
         _offset: Cell<usize>,
     }
 
-    impl TryFrom<&str> for ByteParser {
-        type Error = ConvError<String>;
-
-        fn try_from(s: &str) -> Result<Self, Self::Error> {
-            match Bytes::try_from(s) {
-                Ok(_buf) => Ok(ByteParser {
+    impl ByteParser {
+        pub fn parse(input: &str) -> Self {
+            match Bytes::try_from(input) {
+                Ok(_buf) => Self {
                     _buf,
                     _offset: Cell::new(0usize),
-                }),
-                Err(e) => Err(e),
+                },
+                Err(e) => panic!("error encountered in <…>::ByteParser::parse: {}", e),
             }
         }
-    }
 
-    impl ByteParser {
-        pub fn parse<T>(input: T) -> Self
-        where
-            T: TryInto<Self>,
-            T::Error: Display,
-        {
-            match input.try_into() {
-                Ok(p) => p,
-                Err(err) => panic!("kernel::parse::byteparser::ByteParser::parse: {}", err),
+        fn next(&self) -> Option<&u8> {
+            let cur: usize = self._offset.get();
+            let tgt = cur + 1;
+
+            if tgt > self._buf.len() {
+                None
+            } else {
+                Some(unsafe {
+                    let ret = self._buf.get_word(cur);
+                    self._offset.set(tgt);
+                    ret
+                })
             }
         }
 
@@ -176,35 +177,49 @@ pub mod byteparser {
         }
 
         pub fn get_uint8(&self) -> Result<u8, ParseError> {
-            match self.consume(1) {
-                Ok(bytes) => match bytes {
-                    &[byte] => Ok(byte),
-                    other => Err(ParseError::InternalError(
-                        InternalErrorKind::ConsumeLengthMismatch {
-                            expected: 1,
-                            actual: other.len(),
-                        },
-                    )),
-                },
-                Err(e) => Err(e),
+            match self.next() {
+                Some(&byte) => Ok(byte),
+                None => Err(ParseError::BufferOverflow {
+                    buflen: self._buf.len(),
+                    requested: 1,
+                    offset: self._offset.get(),
+                }),
             }
         }
 
         pub fn get_bool(&self) -> Result<bool, ParseError> {
-            match self.consume(1) {
-                Ok(bytes) => match bytes {
-                    &[0x00] => Ok(false),
-                    &[0xff] => Ok(true),
-                    &[byte] => Err(ParseError::InvalidBoolean(byte)),
-                    other => Err(ParseError::InternalError(
-                        InternalErrorKind::ConsumeLengthMismatch {
-                            expected: 1,
-                            actual: other.len(),
-                        },
-                    )),
+            match self.next() {
+                Some(&byte) => match byte {
+                    0xff => Ok(true),
+                    0x00 => Ok(false),
+                    _ => Err(ParseError::InvalidBoolean(byte)),
                 },
-                Err(e) => Err(e),
+                None => Err(ParseError::BufferOverflow {
+                    buflen: self._buf.len(),
+                    requested: 1,
+                    offset: self._offset.get(),
+                }),
             }
+        }
+
+        pub fn get_dynamic(&self, nbytes: usize) -> Result<Vec<u8>, ParseError> {
+            self.consume(nbytes).map(Vec::from)
+        }
+    }
+
+    pub trait ToParser {
+        fn to_parser(self) -> ByteParser;
+    }
+
+    impl ToParser for ByteParser {
+        fn to_parser(self) -> ByteParser {
+            self
+        }
+    }
+
+    impl ToParser for &str {
+        fn to_parser(self) -> ByteParser {
+            ByteParser::parse(self)
         }
     }
 }
