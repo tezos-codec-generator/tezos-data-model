@@ -222,4 +222,11 @@ pub mod byteparser {
             ByteParser::parse(self)
         }
     }
+
+    impl ToParser for String {
+        fn to_parser(self) -> ByteParser {
+            ByteParser::parse(&self)
+        }
+    }
+
 }

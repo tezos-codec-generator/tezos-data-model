@@ -1,6 +1,6 @@
+mod conv;
 mod parse;
 mod prim;
-mod conv;
 
-pub use crate::parse::byteparser::ByteParser;
-pub use crate::conv::{ToBinary, FromBinary, Encode, Decode};
+pub use crate::conv::{Decode, Encode};
+pub use crate::parse::byteparser::{ToParser, ByteParser};
