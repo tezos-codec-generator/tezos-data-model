@@ -189,7 +189,7 @@ pub mod byteparser {
 
         pub fn get_int8(&self) -> Result<i8, ParseError> {
             match self.next() {
-                Some(&byte) => Ok(i8::from_be_bytes([byte])),
+                Some(&byte) => Ok(byte as i8),
                 None => Err(ParseError::BufferOverflow {
                     buflen: self._buf.len(),
                     requested: 1,
