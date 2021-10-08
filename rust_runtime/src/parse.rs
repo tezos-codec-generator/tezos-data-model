@@ -187,6 +187,17 @@ pub mod byteparser {
             }
         }
 
+        pub fn get_int8(&self) -> Result<i8, ParseError> {
+            match self.next() {
+                Some(&byte) => Ok(i8::from_be_bytes([byte])),
+                None => Err(ParseError::BufferOverflow {
+                    buflen: self._buf.len(),
+                    requested: 1,
+                    offset: self._offset.get(),
+                }),
+            }
+        }
+
         pub fn get_bool(&self) -> Result<bool, ParseError> {
             match self.next() {
                 Some(&byte) => match byte {
