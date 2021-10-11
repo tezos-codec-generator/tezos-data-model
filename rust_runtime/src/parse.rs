@@ -23,6 +23,7 @@ pub mod errors {
     #[derive(Debug, Clone)]
     pub enum InternalErrorKind {
         ConsumeLengthMismatch { expected: usize, actual: usize },
+        SliceCoerceFailure,
     }
 
     impl Display for InternalErrorKind {
@@ -34,6 +35,9 @@ pub mod errors {
                         "consume({}) returned slice of length {}",
                         expected, actual
                     )
+                }
+                InternalErrorKind::SliceCoerceFailure => {
+                    write!(f, "failed to coerce from byte-slice to fixed-length array")
                 }
             }
         }
@@ -120,10 +124,12 @@ pub mod bytes {
 }
 
 pub mod byteparser {
+    use crate::parse::errors::InternalErrorKind;
+
     use super::bytes::Bytes;
     use super::errors::ParseError;
     use std::cell::Cell;
-    use std::convert::TryFrom;
+    use std::convert::{TryFrom, TryInto};
 
     pub struct ByteParser {
         _buf: Bytes,
@@ -175,8 +181,10 @@ pub mod byteparser {
                 })
             }
         }
+    }
 
-        pub fn get_uint8(&self) -> Result<u8, ParseError> {
+    impl ByteParser {
+        pub fn get_u8(&self) -> Result<u8, ParseError> {
             match self.next() {
                 Some(&byte) => Ok(byte),
                 None => Err(ParseError::BufferOverflow {
@@ -187,7 +195,7 @@ pub mod byteparser {
             }
         }
 
-        pub fn get_int8(&self) -> Result<i8, ParseError> {
+        pub fn get_i8(&self) -> Result<i8, ParseError> {
             match self.next() {
                 Some(&byte) => Ok(byte as i8),
                 None => Err(ParseError::BufferOverflow {
@@ -197,7 +205,55 @@ pub mod byteparser {
                 }),
             }
         }
+    }
 
+    impl ByteParser {
+        fn consume_arr<const N: usize>(&self, nbytes: usize) -> Result<[u8; N], ParseError>
+        {
+            assert_eq!(N, nbytes);
+            let ret = self.consume(nbytes);
+            match ret {
+                Err(e) => Err(e),
+                Ok(bytes) => bytes.try_into().or(Err(ParseError::InternalError(
+                    InternalErrorKind::SliceCoerceFailure,
+                )))
+            }
+        }
+    }
+
+    impl ByteParser {
+        pub fn get_u16(&self) -> Result<u16, ParseError> {
+            self.consume_arr::<2>(std::mem::size_of::<u16>())
+                .map(u16::from_be_bytes)
+        }
+
+        pub fn get_i16(&self) -> Result<i16, ParseError> {
+            self.consume_arr::<2>(std::mem::size_of::<i16>())
+                .map(i16::from_be_bytes)
+        }
+
+        pub fn get_u32(&self) -> Result<u32, ParseError> {
+            self.consume_arr::<4>(std::mem::size_of::<u32>())
+                .map(u32::from_be_bytes)
+        }
+
+        pub fn get_i32(&self) -> Result<i32, ParseError> {
+            self.consume_arr::<4>(std::mem::size_of::<i32>())
+                .map(i32::from_be_bytes)
+        }
+
+        pub fn get_u64(&self) -> Result<u64, ParseError> {
+            self.consume_arr::<8>(std::mem::size_of::<u64>())
+                .map(u64::from_be_bytes)
+        }
+
+        pub fn get_i64(&self) -> Result<i64, ParseError> {
+            self.consume_arr::<8>(std::mem::size_of::<i64>())
+                .map(i64::from_be_bytes)
+        }
+    }
+
+    impl ByteParser {
         pub fn get_bool(&self) -> Result<bool, ParseError> {
             match self.next() {
                 Some(&byte) => match byte {
@@ -212,7 +268,9 @@ pub mod byteparser {
                 }),
             }
         }
+    }
 
+    impl ByteParser {
         pub fn get_dynamic(&self, nbytes: usize) -> Result<Vec<u8>, ParseError> {
             self.consume(nbytes).map(Vec::from)
         }
@@ -239,5 +297,4 @@ pub mod byteparser {
             ByteParser::parse(&self)
         }
     }
-
 }

@@ -10,23 +10,102 @@ pub mod integral {
         }
     }
 
-    impl Decode for u8 {
-        fn decode<U: ToParser>(inp: U) -> Self {
-            let p = inp.to_parser();
-            p.get_uint8().unwrap()
-        }
-    }
-
     impl Encode<String> for i8 {
         fn encode(&self) -> String {
             format!("{:02x}", *self)
         }
     }
 
+    impl Encode<String> for u16 {
+        fn encode(&self) -> String {
+            format!("{:04x}", *self)
+        }
+    }
+
+    impl Encode<String> for i16 {
+        fn encode(&self) -> String {
+            format!("{:04x}", *self)
+        }
+    }
+
+    impl Encode<String> for u32 {
+        fn encode(&self) -> String {
+            format!("{:08x}", *self)
+        }
+    }
+
+    impl Encode<String> for i32 {
+        fn encode(&self) -> String {
+            format!("{:08x}", *self)
+        }
+    }
+
+    impl Encode<String> for u64 {
+        fn encode(&self) -> String {
+            format!("{:016x}", *self)
+        }
+    }
+
+    impl Encode<String> for i64 {
+        fn encode(&self) -> String {
+            format!("{:016x}", *self)
+        }
+    }
+
+
+    impl Decode for u8 {
+        fn decode<U: ToParser>(inp: U) -> Self {
+            let p = inp.to_parser();
+            p.get_u8().unwrap()
+        }
+    }
+
     impl Decode for i8 {
         fn decode<U: ToParser>(inp: U) -> Self {
             let p = inp.to_parser();
-            p.get_int8().unwrap()
+            p.get_i8().unwrap()
+        }
+    }
+
+    impl Decode for u16 {
+        fn decode<U: ToParser>(inp: U) -> Self {
+            let p = inp.to_parser();
+            p.get_u16().unwrap()
+        }
+    }
+
+    impl Decode for i16 {
+        fn decode<U: ToParser>(inp: U) -> Self {
+            let p = inp.to_parser();
+            p.get_i16().unwrap()
+        }
+    }
+
+    impl Decode for u32 {
+        fn decode<U: ToParser>(inp: U) -> Self {
+            let p = inp.to_parser();
+            p.get_u32().unwrap()
+        }
+    }
+
+    impl Decode for i32 {
+        fn decode<U: ToParser>(inp: U) -> Self {
+            let p = inp.to_parser();
+            p.get_i32().unwrap()
+        }
+    }
+
+    impl Decode for u64 {
+        fn decode<U: ToParser>(inp: U) -> Self {
+            let p = inp.to_parser();
+            p.get_u64().unwrap()
+        }
+    }
+
+    impl Decode for i64 {
+        fn decode<U: ToParser>(inp: U) -> Self {
+            let p = inp.to_parser();
+            p.get_i64().unwrap()
         }
     }
 }
@@ -59,6 +138,14 @@ mod tests {
         (0xff, "ff"),
     ];
 
+    #[test]
+    fn u8_encode_decode() {
+        for (u, enc) in U8_CASES.iter() {
+            assert_eq!(enc.to_owned(), u.encode());
+            assert_eq!(u8::decode(enc.to_owned()), *u);
+        }
+    }
+
     const I8_CASES: [(i8, &'static str); 5] = [
         (0x00, "00"),
         (0x01, "01"),
@@ -68,31 +155,42 @@ mod tests {
     ];
 
     #[test]
-    fn test_uint8_encode() {
-        for (u, enc) in U8_CASES.iter() {
-            assert_eq!(enc.to_owned(), u.encode());
-        }
-    }
-
-    #[test]
-    fn test_uint8_decode() {
-        for (u, enc) in U8_CASES.iter() {
-            assert_eq!(u8::decode(enc.to_owned()), *u);
-        }
-    }
-
-    #[test]
-    fn test_int8_encode() {
+    fn i8_encode_decode() {
         for (i, enc) in I8_CASES.iter() {
             assert_eq!(enc.to_owned(), i.encode());
-        }
-    }
-
-    #[test]
-    fn test_int8_decode() {
-        for (i, enc) in I8_CASES.iter() {
             assert_eq!(i8::decode(enc.to_owned()), *i);
         }
     }
-}
 
+    const U16_CASES: [(u16, &'static str); 5] = [
+        (0x0000, "0000"),
+        (0x0001, "0001"),
+        (0x7fff, "7fff"),
+        (0x8000, "8000"),
+        (0xffff, "ffff"),
+    ];
+
+    #[test]
+    fn u16_encode_decode() {
+        for (u, enc) in U16_CASES.iter() {
+            assert_eq!(enc.to_owned(), u.encode());
+            assert_eq!(u16::decode(enc.to_owned()), *u);
+        }
+    }
+
+    const I16_CASES: [(i16, &'static str); 5] = [
+        (0x0000, "0000"),
+        (0x0001, "0001"),
+        (0x7fff, "7fff"),
+        (-0x8000, "8000"),
+        (-0x1, "ffff"),
+    ];
+
+    #[test]
+    fn i16_encode_decode() {
+        for (i, enc) in I16_CASES.iter() {
+            assert_eq!(enc.to_owned(), i.encode());
+            assert_eq!(i16::decode(enc.to_owned()), *i);
+        }
+    }
+}
