@@ -208,10 +208,9 @@ pub mod byteparser {
     }
 
     impl ByteParser {
-        fn consume_arr<const N: usize>(&self, nbytes: usize) -> Result<[u8; N], ParseError>
+        fn consume_arr<const N: usize>(&self) -> Result<[u8; N], ParseError>
         {
-            assert_eq!(N, nbytes);
-            let ret = self.consume(nbytes);
+            let ret = self.consume(N);
             match ret {
                 Err(e) => Err(e),
                 Ok(bytes) => bytes.try_into().or(Err(ParseError::InternalError(
@@ -223,32 +222,32 @@ pub mod byteparser {
 
     impl ByteParser {
         pub fn get_u16(&self) -> Result<u16, ParseError> {
-            self.consume_arr::<2>(std::mem::size_of::<u16>())
+            self.consume_arr::<2>()
                 .map(u16::from_be_bytes)
         }
 
         pub fn get_i16(&self) -> Result<i16, ParseError> {
-            self.consume_arr::<2>(std::mem::size_of::<i16>())
+            self.consume_arr::<2>()
                 .map(i16::from_be_bytes)
         }
 
         pub fn get_u32(&self) -> Result<u32, ParseError> {
-            self.consume_arr::<4>(std::mem::size_of::<u32>())
+            self.consume_arr::<4>()
                 .map(u32::from_be_bytes)
         }
 
         pub fn get_i32(&self) -> Result<i32, ParseError> {
-            self.consume_arr::<4>(std::mem::size_of::<i32>())
+            self.consume_arr::<4>()
                 .map(i32::from_be_bytes)
         }
 
         pub fn get_u64(&self) -> Result<u64, ParseError> {
-            self.consume_arr::<8>(std::mem::size_of::<u64>())
+            self.consume_arr::<8>()
                 .map(u64::from_be_bytes)
         }
 
         pub fn get_i64(&self) -> Result<i64, ParseError> {
-            self.consume_arr::<8>(std::mem::size_of::<i64>())
+            self.consume_arr::<8>()
                 .map(i64::from_be_bytes)
         }
     }
@@ -273,6 +272,10 @@ pub mod byteparser {
     impl ByteParser {
         pub fn get_dynamic(&self, nbytes: usize) -> Result<Vec<u8>, ParseError> {
             self.consume(nbytes).map(Vec::from)
+        }
+
+        pub fn get_fixed<const N: usize>(&self) -> Result<[u8; N], ParseError> {
+            self.consume_arr::<N>()
         }
     }
 

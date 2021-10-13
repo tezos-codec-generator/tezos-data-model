@@ -1,6 +1,7 @@
 mod parse;
 mod prim;
 mod conv;
+mod int;
 
 pub use crate::parse::byteparser::ByteParser;
 pub use crate::conv::{Encode, Decode};
