@@ -87,6 +87,24 @@ pub mod bytes {
         u8::from_str_radix(hex_pair, 16)
     }
 
+    impl From<&[u8]> for Bytes {
+        fn from(bytes: &[u8]) -> Self {
+            Self(bytes.to_owned())
+        }
+    }
+
+    impl From<Vec<u8>> for Bytes {
+        fn from(bytes: Vec<u8>) -> Self {
+            Self(bytes)
+        }
+    }
+
+    impl<const N: usize> From<[u8; N]> for Bytes {
+        fn from(bytes: [u8; N]) -> Self {
+            Self(bytes.to_vec())
+        }
+    }
+
     impl TryFrom<&str> for Bytes {
         type Error = super::errors::ConvError<String>;
 
@@ -130,6 +148,7 @@ pub mod byteparser {
     use super::errors::ParseError;
     use std::cell::Cell;
     use std::convert::{TryFrom, TryInto};
+    use std::ops::Deref;
 
     pub struct ByteParser {
         _buf: Bytes,
@@ -137,13 +156,17 @@ pub mod byteparser {
     }
 
     impl ByteParser {
-        pub fn parse(input: &str) -> Self {
+        pub fn parse<T>(input: T) -> Self
+        where
+            Bytes: TryFrom<T>,
+            <T as TryInto<Bytes>>::Error: std::fmt::Display,
+        {
             match Bytes::try_from(input) {
                 Ok(_buf) => Self {
                     _buf,
                     _offset: Cell::new(0usize),
                 },
-                Err(e) => panic!("error encountered in <…>::ByteParser::parse: {}", e),
+                Err(e) => panic!("ByteParser::parse: error encountered: {}", e),
             }
         }
 
@@ -208,47 +231,40 @@ pub mod byteparser {
     }
 
     impl ByteParser {
-        fn consume_arr<const N: usize>(&self) -> Result<[u8; N], ParseError>
-        {
+        fn consume_arr<const N: usize>(&self) -> Result<[u8; N], ParseError> {
             let ret = self.consume(N);
             match ret {
                 Err(e) => Err(e),
                 Ok(bytes) => bytes.try_into().or(Err(ParseError::InternalError(
                     InternalErrorKind::SliceCoerceFailure,
-                )))
+                ))),
             }
         }
     }
 
     impl ByteParser {
         pub fn get_u16(&self) -> Result<u16, ParseError> {
-            self.consume_arr::<2>()
-                .map(u16::from_be_bytes)
+            self.consume_arr::<2>().map(u16::from_be_bytes)
         }
 
         pub fn get_i16(&self) -> Result<i16, ParseError> {
-            self.consume_arr::<2>()
-                .map(i16::from_be_bytes)
+            self.consume_arr::<2>().map(i16::from_be_bytes)
         }
 
         pub fn get_u32(&self) -> Result<u32, ParseError> {
-            self.consume_arr::<4>()
-                .map(u32::from_be_bytes)
+            self.consume_arr::<4>().map(u32::from_be_bytes)
         }
 
         pub fn get_i32(&self) -> Result<i32, ParseError> {
-            self.consume_arr::<4>()
-                .map(i32::from_be_bytes)
+            self.consume_arr::<4>().map(i32::from_be_bytes)
         }
 
         pub fn get_u64(&self) -> Result<u64, ParseError> {
-            self.consume_arr::<8>()
-                .map(u64::from_be_bytes)
+            self.consume_arr::<8>().map(u64::from_be_bytes)
         }
 
         pub fn get_i64(&self) -> Result<i64, ParseError> {
-            self.consume_arr::<8>()
-                .map(i64::from_be_bytes)
+            self.consume_arr::<8>().map(i64::from_be_bytes)
         }
     }
 
@@ -289,15 +305,27 @@ pub mod byteparser {
         }
     }
 
-    impl ToParser for &str {
+    impl<T> ToParser for T
+    where
+        Bytes: TryFrom<T>,
+        <T as TryInto<Bytes>>::Error : std::fmt::Display,
+    {
         fn to_parser(self) -> ByteParser {
             ByteParser::parse(self)
         }
     }
 
+    impl<const N: usize> ToParser for &[u8; N]
+    {
+        fn to_parser(self) -> ByteParser {
+            ByteParser::parse(self.to_vec())
+        }
+    }
+
+
     impl ToParser for String {
         fn to_parser(self) -> ByteParser {
-            ByteParser::parse(&self)
+            ByteParser::parse(self.deref())
         }
     }
 }
