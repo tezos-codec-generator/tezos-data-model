@@ -1,15 +1,6 @@
 use crate::conv::{Decode, Encode};
 use crate::parse::byteparser::ToParser;
 
-impl Encode<String> for bool {
-    fn encode(&self) -> String {
-        match self {
-            &true => String::from("ff"),
-            &false => String::from("00"),
-        }
-    }
-}
-
 impl Encode<Vec<u8>> for bool {
     fn encode(&self) -> Vec<u8> {
         match self {
@@ -34,9 +25,15 @@ pub mod fixed {
         #[derive(PartialEq, Eq, PartialOrd, Ord, Debug)]
         struct ByteString<const N: usize>([u8; N]);
 
-        impl<const N: usize> Encode<String> for ByteString<N> {
-            fn encode(&self) -> String {
-                self.0.iter().map(u8::encode).collect::<String>()
+        impl<const N: usize> From<&[u8; N]> for ByteString<N> {
+            fn from(arr: &[u8; N]) -> Self {
+                Self(arr.clone())
+            }
+        }
+
+        impl<const N: usize> Encode<Vec<u8>> for ByteString<N> {
+            fn encode(&self) -> Vec<u8> {
+                self.0.to_vec()
             }
         }
 
@@ -49,13 +46,25 @@ pub mod fixed {
 
         #[cfg(test)]
         mod tests {
+            use crate::hex;
             use super::*;
+            use crate::parse::hexstring::HexString;
+
             #[test]
-            fn bytestring() {
-                let b = ByteString::<4>::decode("deadbeef");
+            fn bytestring_hex() {
+                let hex = hex!("deadbeef");
+                let b = ByteString::<4>::decode(hex);
                 assert_eq!(b, ByteString([0xde,0xad,0xbe,0xef]));
-                assert_eq!(b.encode(), "deadbeef");
+                assert_eq!(Encode::<HexString>::encode(&b).to_string(), "deadbeef");
             }
+            
+            #[test]
+            fn bytestring_ascii() {
+                let b = ByteString::<12>::decode("hello world!");
+                assert_eq!(b, ByteString::from(b"hello world!"));
+                assert_eq!(Encode::<String>::encode(&b), "hello world!");
+            }
+
         }
     }
 

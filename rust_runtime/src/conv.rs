@@ -1,4 +1,4 @@
-use crate::parse::byteparser::{ToParser};
+use crate::parse::{byteparser::ToParser, hexstring::HexString};
 
 pub trait Encode<U> {
     fn encode(&self) -> U;
@@ -8,14 +8,34 @@ pub trait Decode {
     fn decode<U: ToParser>(inp: U) -> Self;
 }
 
-impl<T> Encode<String> for Option<T>
+impl<T> Encode<HexString> for T
 where
-    T: Encode<String>,
+    T: Encode<Vec<u8>>
+{
+    fn encode(&self) -> HexString {
+        let bytes : Vec<u8> = self.encode();
+        HexString::from(bytes)
+    }
+}
+
+impl<T> Encode<String> for T
+where
+    T: Encode<Vec<u8>>,
 {
     fn encode(&self) -> String {
+        let bytes: Vec<u8> = self.encode();
+        unsafe { String::from_utf8_unchecked(bytes) }
+    }
+}
+
+impl<T> Encode<Vec<u8>> for Option<T>
+where
+    T: Encode<Vec<u8>>
+{
+    fn encode(&self) -> Vec<u8> {
         match self {
             Some(val) => val.encode(),
-            None => String::from("00"),
+            None => vec![0x00],
         }
     }
 }

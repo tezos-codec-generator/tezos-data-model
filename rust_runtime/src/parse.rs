@@ -75,17 +75,75 @@ pub mod errors {
     }
 }
 
-pub mod bytes {
-    use super::errors::ConvError::{HexError, ParityError};
+pub mod hexstring {
+    use super::errors::ConvError::{self, HexError, ParityError};
     use std::convert::TryFrom;
-    use std::num::ParseIntError;
+
+    pub struct HexString {
+        words: Vec<u8>,
+    }
+
+    impl From<Vec<u8>> for HexString {
+        fn from(words: Vec<u8>) -> Self {
+            Self { words }
+        }
+    }
+
+    impl TryFrom<&str> for HexString {
+        type Error = ConvError<String>;
+
+        fn try_from(s: &str) -> Result<Self, Self::Error> {
+            let parity = s.len() % 2;
+
+            if parity == 1 {
+                return Err(ParityError(s.to_owned()));
+            }
+
+            let mut words: Vec<u8> = Vec::new();
+
+            for wix in (0..s.len()).step_by(2) {
+                match u8::from_str_radix(&s[wix..wix + 2], 16) {
+                    Ok(byte) => words.push(byte),
+                    Err(_) => return Err(HexError(s.to_owned())),
+                }
+            }
+
+            Ok(HexString { words })
+        }
+    }
+
+    #[macro_export]
+    macro_rules! hex {
+        ($s : expr) => {
+            <crate::parse::hexstring::HexString as std::convert::TryFrom<&str>>::try_from($s)
+                .unwrap()
+        };
+    }
+
+    impl HexString {
+        pub fn get_words(&self) -> &[u8] {
+            &self.words
+        }
+
+        pub fn to_vec(self) -> Vec<u8> {
+            self.words
+        }
+    }
+
+    impl ToString for HexString {
+        fn to_string(&self) -> String {
+            self.words
+                .iter()
+                .map(|&word| format!("{:02x}", word))
+                .collect()
+        }
+    }
+}
+
+pub mod bytes {
+    use super::hexstring::HexString;
 
     pub struct Bytes(Vec<u8>);
-
-    fn to_word(hex_pair: &str) -> Result<u8, ParseIntError> {
-        assert_eq!(hex_pair.len(), 2);
-        u8::from_str_radix(hex_pair, 16)
-    }
 
     impl From<&[u8]> for Bytes {
         fn from(bytes: &[u8]) -> Self {
@@ -105,24 +163,15 @@ pub mod bytes {
         }
     }
 
-    impl TryFrom<&str> for Bytes {
-        type Error = super::errors::ConvError<String>;
+    impl From<HexString> for Bytes {
+        fn from(hex: HexString) -> Self {
+            Bytes(hex.to_vec())
+        }
+    }
 
-        fn try_from(s: &str) -> Result<Self, Self::Error> {
-            let parity = s.len() % 2;
-
-            if parity == 1 {
-                Err(ParityError(s.to_owned()))
-            } else {
-                let words = (0..s.len())
-                    .step_by(2)
-                    .map(|wix| to_word(&s[wix..wix + 2]))
-                    .collect();
-                match words {
-                    Ok(v) => Ok(Bytes(v)),
-                    Err(_) => Err(HexError(s.to_owned())),
-                }
-            }
+    impl From<&str> for Bytes {
+        fn from(s: &str) -> Self {
+            Bytes(s.as_bytes().to_owned())
         }
     }
 
@@ -308,20 +357,18 @@ pub mod byteparser {
     impl<T> ToParser for T
     where
         Bytes: TryFrom<T>,
-        <T as TryInto<Bytes>>::Error : std::fmt::Display,
+        <T as TryInto<Bytes>>::Error: std::fmt::Display,
     {
         fn to_parser(self) -> ByteParser {
             ByteParser::parse(self)
         }
     }
 
-    impl<const N: usize> ToParser for &[u8; N]
-    {
+    impl<const N: usize> ToParser for &[u8; N] {
         fn to_parser(self) -> ByteParser {
             ByteParser::parse(self.to_vec())
         }
     }
-
 
     impl ToParser for String {
         fn to_parser(self) -> ByteParser {

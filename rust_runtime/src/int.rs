@@ -3,14 +3,6 @@ use crate::parse::byteparser::ToParser;
 use std::convert::{TryFrom, TryInto};
 use std::fmt::{Debug, Display};
 
-#[derive(PartialEq, PartialOrd, Debug, Clone, Copy)]
-pub struct RangedInt<I, const MIN: i32, const MAX: i32>
-where
-    I: Eq + Ord + Debug + Display + Copy,
-{
-    val: I,
-}
-
 impl<I, const MIN: i32, const MAX: i32> Into<i32> for RangedInt<I, MIN, MAX>
 where
     I: Eq + Ord + Debug + Display + Copy + Into<i32>,
@@ -83,22 +75,37 @@ pub type u30 = RangedInt<u32, 0, 0x3fff_ffff>;
 #[allow(dead_code)]
 pub type i31 = RangedInt<i32, -0x4000_0000i32, 0x3fff_ffffi32>;
 
-impl Encode<String> for u8 {
-    fn encode(&self) -> String {
-        format!("{:02x}", *self)
-    }
+
+#[macro_export]
+macro_rules! impl_encode_words {
+    ($a:ty) => {
+       impl Encode<Vec<u8>> for $a {
+           fn encode(&self) -> Vec<u8> {
+               self.to_be_bytes().to_vec()
+           }
+       }
+    };
 }
+#[derive(PartialEq, PartialOrd, Debug, Clone, Copy)]
+pub struct RangedInt<I, const MIN: i32, const MAX: i32>
+where
+    I: Eq + Ord + Debug + Display + Copy,
+{
+    val: I,
+}
+
+impl_encode_words!(u8);
+impl_encode_words!(i8);
+impl_encode_words!(u16);
+impl_encode_words!(i16);
+impl_encode_words!(u32);
+impl_encode_words!(i32);
+impl_encode_words!(i64);
 
 impl Decode for u8 {
     fn decode<U: ToParser>(inp: U) -> Self {
         let p = inp.to_parser();
         p.get_u8().unwrap()
-    }
-}
-
-impl Encode<String> for i8 {
-    fn encode(&self) -> String {
-        format!("{:02x}", *self)
     }
 }
 
@@ -109,22 +116,10 @@ impl Decode for i8 {
     }
 }
 
-impl Encode<String> for u16 {
-    fn encode(&self) -> String {
-        format!("{:04x}", *self)
-    }
-}
-
 impl Decode for u16 {
     fn decode<U: ToParser>(inp: U) -> Self {
         let p = inp.to_parser();
         p.get_u16().unwrap()
-    }
-}
-
-impl Encode<String> for i16 {
-    fn encode(&self) -> String {
-        format!("{:04x}", *self)
     }
 }
 
@@ -135,12 +130,6 @@ impl Decode for i16 {
     }
 }
 
-impl Encode<String> for i32 {
-    fn encode(&self) -> String {
-        format!("{:08x}", *self)
-    }
-}
-
 impl Decode for i32 {
     fn decode<U: ToParser>(inp: U) -> Self {
         let p = inp.to_parser();
@@ -148,23 +137,10 @@ impl Decode for i32 {
     }
 }
 
-// this is not directly used, but is required for RangedInt 4-byte unsigned integral encode
-impl Encode<String> for u32 {
-    fn encode(&self) -> String {
-        format!("{:08x}", *self)
-    }
-}
-
-// this is not directly used, but is required for RangedInt 4-byte unsigned integral decode
 impl Decode for u32 {
     fn decode<U: ToParser>(inp: U) -> Self {
         let p = inp.to_parser();
         p.get_u32().unwrap()
-    }
-}
-impl Encode<String> for i64 {
-    fn encode(&self) -> String {
-        format!("{:016x}", *self)
     }
 }
 
@@ -175,12 +151,12 @@ impl Decode for i64 {
     }
 }
 
-impl<I, const MIN: i32, const MAX: i32> Encode<String> for RangedInt<I, MIN, MAX>
+impl<I, const MIN: i32, const MAX: i32> Encode<Vec<u8>> for RangedInt<I, MIN, MAX>
 where
-    I: Eq + Ord + Debug + Display + Copy + Encode<String> + Into<i64> + TryFrom<i64>,
+    I: Eq + Ord + Debug + Display + Copy + Encode<Vec<u8>> + Into<i64> + TryFrom<i64>,
     <I as TryFrom<i64>>::Error: std::fmt::Debug,
 {
-    fn encode(&self) -> String {
+    fn encode(&self) -> Vec<u8> {
         let enc_val: I = if MIN > 0 {
             let val: i64 = (*self).val.into();
             let min: i64 = MIN.into();
@@ -220,15 +196,18 @@ where
 
 #[cfg(test)]
 mod tests {
+    use crate::hex;
+    use crate::parse::hexstring::{HexString};
+
     use super::*;
 
     fn encode_decode<U, const N: usize>(table: [(U, &'static str); N])
     where
-        U: Encode<String> + Decode + std::cmp::PartialEq + std::fmt::Debug,
+        U: Encode<HexString> + Decode + std::cmp::PartialEq + std::fmt::Debug,
     {
         for (u, enc) in table.iter() {
-            assert_eq!(enc.to_owned(), u.encode());
-            assert_eq!(U::decode(enc.to_owned()), *u);
+            assert_eq!(enc.to_owned(), HexString::to_string(&u.encode()));
+            assert_eq!(U::decode(hex!(*enc)), *u);
         }
     }
 
