@@ -112,11 +112,17 @@ pub mod fixed {
         #[cfg(test)]
         mod tests {
             use super::*;
+
+            fn check<const N: usize>(case: &'static str) {
+                let res = CharString::<N>::decode(case);
+                assert_eq!(res, CharString::from(case));
+                assert_eq!(res.encode(), case);
+            }
+
             #[test]
             fn charstring() {
-                let b = CharString::<12>::decode(b"hello world!");
-                assert_eq!(b, CharString::from("hello world!"));
-                assert_eq!(b.encode(), "hello world!");
+                check::<12>("hello world!");
+                check::<12>("さよなら");
             }
         }
     }
