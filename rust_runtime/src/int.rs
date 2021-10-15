@@ -3,36 +3,107 @@ use crate::parse::byteparser::ToParser;
 use std::convert::{TryFrom, TryInto};
 use std::fmt::{Debug, Display};
 
+pub trait Integral: Eq + Ord + Debug + Display + Copy + Into<i64> + TryFrom<i64> {}
+impl Integral for u8 {}
+impl Integral for i8 {}
+impl Integral for i16 {}
+impl Integral for u16 {}
+impl Integral for u32 {}
+impl Integral for i32 {}
+
+#[derive(Debug)]
+pub enum OutOfRange {
+    Underflow { min: i64, val: i64 },
+    Overflow { max: i64, val: i64 },
+}
+
+impl OutOfRange {
+    pub fn restrict<T, U>(x: T, min: U, max: U) -> Result<T, Self>
+    where
+        T: Into<i64> + Copy,
+        U: Into<i64>,
+    {
+        let min64: i64 = min.into();
+        let max64: i64 = max.into();
+        let val: i64 = x.into();
+        if val < min64 {
+            Err(Self::Underflow { min: min64, val })
+        } else if val > max64 {
+            Err(Self::Overflow { max: max64, val })
+        } else {
+            Ok(x)
+        }
+    }
+}
+
+impl Display for OutOfRange {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            &OutOfRange::Underflow { min, val } => write!(
+                f,
+                "Provided value (:= {}) less than RangedInt minimum bound (:= {})",
+                val, min
+            ),
+            &OutOfRange::Overflow { max, val } => write!(
+                f,
+                "Provided value (:= {}) greater than RangedInt maximum bound (:= {})",
+                val, max
+            ),
+        }
+    }
+}
+
+impl<I, const MIN: i32, const MAX: i32> Into<i64> for RangedInt<I, MIN, MAX>
+where
+    I: Integral,
+{
+    fn into(self) -> i64 {
+        self.val.into()
+    }
+}
+
 impl<I, const MIN: i32, const MAX: i32> Into<i32> for RangedInt<I, MIN, MAX>
 where
-    I: Eq + Ord + Debug + Display + Copy + Into<i32>,
+    I: Integral + Into<i32>,
 {
     fn into(self) -> i32 {
         self.val.into()
     }
 }
 
-impl<I, const MIN: i32, const MAX: i32> From<i32> for RangedInt<I, MIN, MAX>
+impl<I, const MIN: i32, const MAX: i32> TryFrom<i32> for RangedInt<I, MIN, MAX>
 where
-    I: Eq + Ord + Debug + Display + Copy + From<i32>,
+    I: Integral,
 {
-    fn from(val: i32) -> Self {
-        Self { val: I::from(val) }
+    type Error = OutOfRange;
+
+    fn try_from(x: i32) -> Result<Self, Self::Error> {
+        match I::try_from(i64::from(x)) {
+            Ok(val) => OutOfRange::restrict(val, MIN, MAX).map(|val| Self { val }),
+            Err(_) => OutOfRange::restrict(x, MIN, MAX)
+                .map(|val| panic!("Incoherent range [{},{}] on {}", MIN, MAX, val)),
+        }
     }
 }
 
-impl<I, const MIN: i32, const MAX: i32> From<u32> for RangedInt<I, MIN, MAX>
+impl<I, const MIN: i32, const MAX: i32> TryFrom<u32> for RangedInt<I, MIN, MAX>
 where
-    I: Eq + Ord + Debug + Display + Copy + From<u32>,
+    I: Integral,
 {
-    fn from(val: u32) -> Self {
-        Self { val: I::from(val) }
+    type Error = OutOfRange;
+
+    fn try_from(x: u32) -> Result<Self, Self::Error> {
+        match I::try_from(i64::from(x)) {
+            Ok(val) => OutOfRange::restrict(val, MIN, MAX).map(|val| Self { val }),
+            Err(_) => OutOfRange::restrict(x, MIN, MAX)
+                .map(|val| panic!("Incoherent range [{},{}] on {}", MIN, MAX, val)),
+        }
     }
 }
 
 impl<I, const MIN: i32, const MAX: i32> Into<u32> for RangedInt<I, MIN, MAX>
 where
-    I: Eq + Ord + Debug + Display + Copy + Into<u32>,
+    I: Integral + Into<u32>,
 {
     fn into(self) -> u32 {
         self.val.into()
@@ -41,7 +112,7 @@ where
 
 impl<I, const MIN: i32, const MAX: i32> RangedInt<I, MIN, MAX>
 where
-    I: Eq + Ord + Debug + Display + Copy + Into<i64>,
+    I: Integral,
 {
     const SANITY: bool = MIN >= -0x4000_0000i32 && MAX <= 0x3fff_ffffi32 && MIN <= MAX;
 
@@ -75,18 +146,17 @@ pub type u30 = RangedInt<u32, 0, 0x3fff_ffff>;
 #[allow(dead_code)]
 pub type i31 = RangedInt<i32, -0x4000_0000i32, 0x3fff_ffffi32>;
 
-
 #[macro_export]
 macro_rules! impl_encode_words {
     ($a:ty) => {
-       impl Encode<Vec<u8>> for $a {
-           fn encode(&self) -> Vec<u8> {
-               self.to_be_bytes().to_vec()
-           }
-       }
+        impl Encode<Vec<u8>> for $a {
+            fn encode(&self) -> Vec<u8> {
+                self.to_be_bytes().to_vec()
+            }
+        }
     };
 }
-#[derive(PartialEq, PartialOrd, Debug, Clone, Copy)]
+#[derive(PartialEq, PartialOrd, Eq, Ord, Debug, Clone, Copy)]
 pub struct RangedInt<I, const MIN: i32, const MAX: i32>
 where
     I: Eq + Ord + Debug + Display + Copy,
@@ -170,7 +240,7 @@ where
 
 impl<I, const MIN: i32, const MAX: i32> Decode for RangedInt<I, MIN, MAX>
 where
-    I: Eq + Ord + Debug + Display + Copy + Decode + Into<i64> + TryFrom<i64>,
+    I: Integral + Decode,
     <I as TryFrom<i64>>::Error: std::fmt::Debug,
 {
     fn decode<U: ToParser>(inp: U) -> Self {
@@ -197,7 +267,7 @@ where
 #[cfg(test)]
 mod tests {
     use crate::hex;
-    use crate::parse::hexstring::{HexString};
+    use crate::parse::hexstring::HexString;
 
     use super::*;
 
