@@ -11,7 +11,7 @@ impl Encode<Vec<u8>> for bool {
 }
 
 impl Decode for bool {
-    fn decode<U: ToParser>(inp: U) -> Self {
+    fn decode(inp: impl ToParser) -> Self {
         let p = inp.to_parser();
         p.get_bool().unwrap()
     }
@@ -38,7 +38,7 @@ pub mod fixed {
         }
 
         impl<const N: usize> Decode for ByteString<N> {
-            fn decode<U: ToParser>(inp: U) -> Self {
+            fn decode(inp: impl ToParser) -> Self {
                 let p = inp.to_parser();
                 ByteString(p.get_fixed::<N>().unwrap())
             }
@@ -104,7 +104,7 @@ pub mod fixed {
         }
 
         impl<const N: usize> Decode for CharString<N> {
-            fn decode<U: ToParser>(inp: U) -> Self {
+            fn decode(inp: impl ToParser) -> Self {
                 let p = inp.to_parser();
                 p.get_fixed::<N>().unwrap().into()
             }

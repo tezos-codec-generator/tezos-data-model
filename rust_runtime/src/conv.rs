@@ -5,7 +5,7 @@ pub trait Encode<U> {
 }
 
 pub trait Decode {
-    fn decode<U: ToParser>(inp: U) -> Self;
+    fn decode(inp: impl ToParser) -> Self;
 }
 
 impl<T> Encode<HexString> for T
@@ -42,7 +42,7 @@ where
 
 impl<T: Decode> Decode for Option<T>
 {
-    fn decode<U: ToParser>(inp: U) -> Self {
+    fn decode(inp: impl ToParser) -> Self {
         let p = inp.to_parser();
         if p.get_bool()
             .expect("Derived Decode::decode for Option<…> encountered error reading leading byte")

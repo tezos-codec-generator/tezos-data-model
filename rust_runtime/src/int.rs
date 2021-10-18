@@ -173,49 +173,49 @@ impl_encode_words!(i32);
 impl_encode_words!(i64);
 
 impl Decode for u8 {
-    fn decode<U: ToParser>(inp: U) -> Self {
+    fn decode(inp: impl ToParser) -> Self {
         let p = inp.to_parser();
         p.get_u8().unwrap()
     }
 }
 
 impl Decode for i8 {
-    fn decode<U: ToParser>(inp: U) -> Self {
+    fn decode(inp: impl ToParser) -> Self {
         let p = inp.to_parser();
         p.get_i8().unwrap()
     }
 }
 
 impl Decode for u16 {
-    fn decode<U: ToParser>(inp: U) -> Self {
+    fn decode(inp: impl ToParser) -> Self {
         let p = inp.to_parser();
         p.get_u16().unwrap()
     }
 }
 
 impl Decode for i16 {
-    fn decode<U: ToParser>(inp: U) -> Self {
+    fn decode(inp: impl ToParser) -> Self {
         let p = inp.to_parser();
         p.get_i16().unwrap()
     }
 }
 
 impl Decode for i32 {
-    fn decode<U: ToParser>(inp: U) -> Self {
+    fn decode(inp: impl ToParser) -> Self {
         let p = inp.to_parser();
         p.get_i32().unwrap()
     }
 }
 
 impl Decode for u32 {
-    fn decode<U: ToParser>(inp: U) -> Self {
+    fn decode(inp: impl ToParser) -> Self {
         let p = inp.to_parser();
         p.get_u32().unwrap()
     }
 }
 
 impl Decode for i64 {
-    fn decode<U: ToParser>(inp: U) -> Self {
+    fn decode(inp: impl ToParser) -> Self {
         let p = inp.to_parser();
         p.get_i64().unwrap()
     }
@@ -243,7 +243,7 @@ where
     I: Integral + Decode,
     <I as TryFrom<i64>>::Error: std::fmt::Debug,
 {
-    fn decode<U: ToParser>(inp: U) -> Self {
+    fn decode(inp: impl ToParser) -> Self {
         let p = inp.to_parser();
         let raw = I::decode(p);
         if MIN > 0 {
