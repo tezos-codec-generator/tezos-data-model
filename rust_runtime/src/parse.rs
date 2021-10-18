@@ -79,6 +79,7 @@ pub mod hexstring {
     use super::errors::ConvError::{self, HexError, ParityError};
     use std::convert::TryFrom;
 
+    #[derive(PartialEq, Eq, PartialOrd, Ord, Debug, Clone)]
     pub struct HexString {
         words: Vec<u8>,
     }
@@ -115,7 +116,7 @@ pub mod hexstring {
     #[macro_export]
     macro_rules! hex {
         ($s : expr) => {
-            <crate::parse::hexstring::HexString as std::convert::TryFrom<&str>>::try_from($s)
+            <HexString as std::convert::TryFrom<&str>>::try_from($s)
                 .unwrap()
         };
     }
@@ -128,14 +129,18 @@ pub mod hexstring {
         pub fn to_vec(self) -> Vec<u8> {
             self.words
         }
-    }
-
-    impl ToString for HexString {
-        fn to_string(&self) -> String {
+        
+        pub fn as_hex(&self) -> String {
             self.words
                 .iter()
                 .map(|&word| format!("{:02x}", word))
                 .collect()
+        }
+    }
+
+    impl std::fmt::Display for HexString {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            String::fmt(&self.as_hex(), f)
         }
     }
 }
