@@ -84,6 +84,12 @@ pub mod hexstring {
         words: Vec<u8>,
     }
 
+    impl From<&[u8]> for HexString {
+        fn from(words: &[u8]) -> Self {
+            Self { words: words.to_vec() }
+        }
+    }
+
     impl From<Vec<u8>> for HexString {
         fn from(words: Vec<u8>) -> Self {
             Self { words }

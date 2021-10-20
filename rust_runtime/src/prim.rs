@@ -23,7 +23,7 @@ pub mod fixed {
         use crate::parse::byteparser::ToParser;
 
         #[derive(PartialEq, Eq, PartialOrd, Ord, Debug)]
-        struct ByteString<const N: usize>([u8; N]);
+        pub struct ByteString<const N: usize>([u8; N]);
 
         impl<const N: usize> From<&[u8; N]> for ByteString<N> {
             fn from(arr: &[u8; N]) -> Self {
@@ -70,10 +70,10 @@ pub mod fixed {
 
     pub mod charstring {
         use crate::conv::{Decode, Encode};
-        use crate::parse::byteparser::ToParser;
+        use crate::parse::{byteparser::ToParser, hexstring::HexString};
 
         #[derive(PartialEq, Eq, PartialOrd, Ord, Debug)]
-        struct CharString<const N: usize> {
+        pub struct CharString<const N: usize> {
             contents: String
         }
 
@@ -103,6 +103,12 @@ pub mod fixed {
             }
         }
 
+        impl<const N: usize> Encode<HexString> for CharString<N> {
+            fn encode(&self) -> HexString {
+                HexString::from(self.contents.as_bytes())
+            }
+        }
+
         impl<const N: usize> Decode for CharString<N> {
             fn decode(inp: impl ToParser) -> Self {
                 let p = inp.to_parser();
@@ -116,7 +122,7 @@ pub mod fixed {
             fn check<const N: usize>(case: &'static str) {
                 let res = CharString::<N>::decode(case);
                 assert_eq!(res, CharString::from(case));
-                assert_eq!(res.encode(), case);
+                assert_eq!(Encode::<String>::encode(&res), case);
             }
 
             #[test]
