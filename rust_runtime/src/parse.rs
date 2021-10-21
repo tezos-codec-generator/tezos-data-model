@@ -77,16 +77,25 @@ pub mod errors {
 
 pub mod hexstring {
     use super::errors::ConvError::{self, HexError, ParityError};
-    use std::convert::TryFrom;
+    use crate::builder::Builder;
+    use std::{borrow::Borrow, convert::TryFrom};
 
     #[derive(PartialEq, Eq, PartialOrd, Ord, Debug, Clone)]
     pub struct HexString {
         words: Vec<u8>,
     }
 
+    impl Borrow<[u8]> for HexString {
+        fn borrow(&self) -> &[u8] {
+            self.words.borrow()
+        }
+    }
+
     impl From<&[u8]> for HexString {
         fn from(words: &[u8]) -> Self {
-            Self { words: words.to_vec() }
+            Self {
+                words: words.to_vec(),
+            }
         }
     }
 
@@ -122,9 +131,22 @@ pub mod hexstring {
     #[macro_export]
     macro_rules! hex {
         ($s : expr) => {
-            <HexString as std::convert::TryFrom<&str>>::try_from($s)
-                .unwrap()
+            <HexString as std::convert::TryFrom<&str>>::try_from($s).unwrap()
         };
+    }
+
+    impl Builder for HexString {
+        fn word(b: u8) -> Self {
+            Self { words: vec![b] }
+        }
+
+        fn words<const N: usize>(b: [u8; N]) -> Self {
+            Self { words: b.to_vec() }
+        }
+
+        fn into_vec(self) -> Vec<u8> {
+            self.words
+        }
     }
 
     impl HexString {
@@ -135,7 +157,7 @@ pub mod hexstring {
         pub fn to_vec(self) -> Vec<u8> {
             self.words
         }
-        
+
         pub fn as_hex(&self) -> String {
             self.words
                 .iter()

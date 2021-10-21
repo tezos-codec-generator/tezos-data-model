@@ -1,5 +1,6 @@
 use crate::conv::{Decode, Encode};
 use crate::parse::byteparser::ToParser;
+use crate::builder::{self, Builder};
 use std::convert::{TryFrom, TryInto};
 use std::fmt::{Debug, Display};
 
@@ -149,9 +150,9 @@ pub type i31 = RangedInt<i32, -0x4000_0000i32, 0x3fff_ffffi32>;
 #[macro_export]
 macro_rules! impl_encode_words {
     ($a:ty) => {
-        impl Encode<Vec<u8>> for $a {
-            fn encode(&self) -> Vec<u8> {
-                self.to_be_bytes().to_vec()
+        impl Encode for $a {
+            fn encode<U: builder::Builder>(&self) -> U {
+                U::words(self.to_be_bytes())
             }
         }
     };
@@ -221,12 +222,12 @@ impl Decode for i64 {
     }
 }
 
-impl<I, const MIN: i32, const MAX: i32> Encode<Vec<u8>> for RangedInt<I, MIN, MAX>
+impl<I, const MIN: i32, const MAX: i32> Encode for RangedInt<I, MIN, MAX>
 where
-    I: Eq + Ord + Debug + Display + Copy + Encode<Vec<u8>> + Into<i64> + TryFrom<i64>,
+    I: Eq + Ord + Debug + Display + Copy + Encode + Into<i64> + TryFrom<i64>,
     <I as TryFrom<i64>>::Error: std::fmt::Debug,
 {
-    fn encode(&self) -> Vec<u8> {
+    fn encode<U: Builder>(&self) -> U {
         let enc_val: I = if MIN > 0 {
             let val: i64 = (*self).val.into();
             let min: i64 = MIN.into();
@@ -266,6 +267,7 @@ where
 
 #[cfg(test)]
 mod tests {
+    use crate::builder::owned::OwnedBuilder;
     use crate::hex;
     use crate::parse::hexstring::HexString;
 
@@ -273,10 +275,10 @@ mod tests {
 
     fn encode_decode<U, const N: usize>(table: [(U, &'static str); N])
     where
-        U: Encode<HexString> + Decode + std::cmp::PartialEq + std::fmt::Debug,
+        U: Encode + Decode + std::cmp::PartialEq + std::fmt::Debug,
     {
         for (u, enc) in table.iter() {
-            assert_eq!(enc.to_owned(), HexString::to_string(&u.encode()));
+            assert_eq!(enc.to_owned(), u.encode::<OwnedBuilder>().show_hex());
             assert_eq!(U::decode(hex!(*enc)), *u);
         }
     }
