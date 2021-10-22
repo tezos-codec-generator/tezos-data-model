@@ -77,12 +77,22 @@ pub mod errors {
 
 pub mod hexstring {
     use super::errors::ConvError::{self, HexError, ParityError};
-    use crate::builder::Builder;
-    use std::{borrow::Borrow, convert::TryFrom};
+    use crate::{builder::Builder, util::hex_of_bytes};
+    use std::{borrow::Borrow, convert::TryFrom, vec::IntoIter};
 
     #[derive(PartialEq, Eq, PartialOrd, Ord, Debug, Clone)]
     pub struct HexString {
         words: Vec<u8>,
+    }
+
+    impl IntoIterator for HexString {
+        type Item = u8;
+
+        type IntoIter = IntoIter<u8>;
+
+        fn into_iter(self) -> Self::IntoIter {
+            self.words.into_iter()
+    }
     }
 
     impl Borrow<[u8]> for HexString {
@@ -131,7 +141,7 @@ pub mod hexstring {
     #[macro_export]
     macro_rules! hex {
         ($s : expr) => {
-            <HexString as std::convert::TryFrom<&str>>::try_from($s).unwrap()
+            <HexString as std::convert::TryFrom<&str>>::try_from($s).expect("hex! macro encountered error")
         };
     }
 
@@ -149,9 +159,48 @@ pub mod hexstring {
         }
     }
 
+    impl std::str::FromStr for HexString {
+        type Err = super::errors::ConvError<String>;
+
+        fn from_str(s: &str) -> Result<Self, Self::Err> {
+            Self::try_from(s)
+        }
+    }
+
+    impl PartialEq<&str> for HexString {
+        fn eq(&self, other: &&str) -> bool {
+            <HexString as PartialEq<HexString>>::eq(self, &other.parse().unwrap())
+        }
+    }
+
+
+    impl PartialEq<String> for HexString {
+        fn eq(&self, other: &String) -> bool {
+            <HexString as PartialEq<HexString>>::eq(self, &other.parse().unwrap())
+        }
+    }
+
+    impl PartialEq<HexString> for String {
+        fn eq(&self, other: &HexString) -> bool {
+            <HexString as PartialEq<String>>::eq(other, &self)
+        }
+    }
+
+    impl PartialEq<HexString> for &str {
+        fn eq(&self, other: &HexString) -> bool {
+            <HexString as PartialEq<&str>>::eq(other, self)
+        }
+    }
+
+
+
     impl HexString {
         pub fn get_words(&self) -> &[u8] {
             &self.words
+        }
+
+        pub fn iter(&self) -> std::slice::Iter<u8> {
+            self.words.iter()
         }
 
         pub fn to_vec(self) -> Vec<u8> {
@@ -159,10 +208,7 @@ pub mod hexstring {
         }
 
         pub fn as_hex(&self) -> String {
-            self.words
-                .iter()
-                .map(|&word| format!("{:02x}", word))
-                .collect()
+            hex_of_bytes(&self.words)
         }
     }
 
@@ -174,6 +220,8 @@ pub mod hexstring {
 }
 
 pub mod bytes {
+    use crate::hex;
+
     use super::hexstring::HexString;
 
     pub struct Bytes(Vec<u8>);
@@ -204,7 +252,8 @@ pub mod bytes {
 
     impl From<&str> for Bytes {
         fn from(s: &str) -> Self {
-            Bytes(s.as_bytes().to_owned())
+            hex!(s).into()
+            // Bytes(s.as_bytes().to_owned())
         }
     }
 

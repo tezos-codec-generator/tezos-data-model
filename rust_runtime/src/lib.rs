@@ -12,3 +12,4 @@ pub use crate::parse::{
     hexstring::HexString,
 };
 pub use crate::prim::fixed::{bytestring::ByteString, charstring::CharString};
+pub use crate::builder::{Builder, owned::OwnedBuilder};
