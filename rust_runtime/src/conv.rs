@@ -13,7 +13,7 @@ impl<T: Encode> Encode for Option<T>
 {
     fn encode<U: Builder>(&self) -> U {
         match self {
-            Some(val) => val.encode(),
+            Some(val) => U::word(0xff) + val.encode(),
             None => U::word(0x00),
         }
     }

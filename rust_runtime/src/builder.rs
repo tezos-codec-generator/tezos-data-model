@@ -2,7 +2,10 @@ use std::{borrow::Borrow, string::FromUtf8Error};
 
 use crate::util::hex_of_bytes;
 
-pub trait Builder where Self: Borrow<[u8]> + Clone {
+pub trait Builder
+where
+    Self: Borrow<[u8]> + Clone + std::ops::Add<Self, Output = Self>,
+{
     fn word(b: u8) -> Self;
 
     fn words<const N: usize>(b: [u8; N]) -> Self;
@@ -33,13 +36,17 @@ pub mod owned {
 
     impl<const N: usize> From<[u8; N]> for OwnedBuilder {
         fn from(words: [u8; N]) -> Self {
-            Self { buf: words.to_vec() }
+            Self {
+                buf: words.to_vec(),
+            }
         }
     }
 
     impl<const N: usize> From<&[u8; N]> for OwnedBuilder {
         fn from(words: &[u8; N]) -> Self {
-            Self { buf: words.to_vec() }
+            Self {
+                buf: words.to_vec(),
+            }
         }
     }
 
@@ -63,10 +70,12 @@ pub mod owned {
 
     impl Clone for OwnedBuilder {
         fn clone(&self) -> Self {
-            Self { buf: self.buf.clone() }
+            Self {
+                buf: self.buf.clone(),
+            }
         }
     }
-    
+
     impl super::Builder for OwnedBuilder {
         fn word(b: u8) -> Self {
             b.into()
@@ -87,7 +96,9 @@ pub mod owned {
         }
 
         pub fn new(cap: usize) -> Self {
-            Self { buf: Vec::with_capacity(cap) }
+            Self {
+                buf: Vec::with_capacity(cap),
+            }
         }
     }
 
@@ -95,7 +106,7 @@ pub mod owned {
         type Output = Self;
 
         fn add(self, rhs: T) -> Self::Output {
-            let mut buf : Vec<u8> = self.buf;
+            let mut buf: Vec<u8> = self.buf;
             buf.extend_from_slice(rhs.borrow());
             Self { buf }
         }

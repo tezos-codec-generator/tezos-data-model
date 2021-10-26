@@ -92,7 +92,16 @@ pub mod hexstring {
 
         fn into_iter(self) -> Self::IntoIter {
             self.words.into_iter()
+        }
     }
+
+    impl std::ops::Add<HexString> for HexString {
+        type Output = HexString;
+
+        fn add(self, rhs: HexString) -> Self::Output {
+            let words : Vec<u8> = self.into_iter().chain(rhs.into_iter()).collect();
+            Self { words }
+        }
     }
 
     impl Borrow<[u8]> for HexString {
@@ -141,7 +150,8 @@ pub mod hexstring {
     #[macro_export]
     macro_rules! hex {
         ($s : expr) => {
-            <HexString as std::convert::TryFrom<&str>>::try_from($s).expect("hex! macro encountered error")
+            <HexString as std::convert::TryFrom<&str>>::try_from($s)
+                .expect("hex! macro encountered error")
         };
     }
 
@@ -173,7 +183,6 @@ pub mod hexstring {
         }
     }
 
-
     impl PartialEq<String> for HexString {
         fn eq(&self, other: &String) -> bool {
             <HexString as PartialEq<HexString>>::eq(self, &other.parse().unwrap())
@@ -191,8 +200,6 @@ pub mod hexstring {
             <HexString as PartialEq<&str>>::eq(other, self)
         }
     }
-
-
 
     impl HexString {
         pub fn get_words(&self) -> &[u8] {
