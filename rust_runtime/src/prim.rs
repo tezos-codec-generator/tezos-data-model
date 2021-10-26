@@ -1,6 +1,18 @@
+use crate::builder;
 use crate::conv::{Decode, Encode};
 use crate::parse::byteparser::ToParser;
-use crate::builder;
+
+impl Encode for () {
+    fn encode<U: builder::Builder>(&self) -> U {
+        U::words([])
+    }
+}
+
+impl Decode for () {
+    fn decode(_: impl ToParser) -> Self {
+        return ();
+    }
+}
 
 impl Encode for bool {
     fn encode<U: builder::Builder>(&self) -> U {
@@ -18,11 +30,20 @@ impl Decode for bool {
     }
 }
 
+#[cfg(test)]
+pub mod tests {
+    use super::*;
+    #[test]
+    fn unit_test() {
+        assert_eq!((), <()>::decode(""));
+    }
+}
+
 pub mod fixed {
     pub mod bytestring {
+        use crate::builder::Builder;
         use crate::conv::{Decode, Encode};
         use crate::parse::byteparser::ToParser;
-        use crate::builder::{Builder};
 
         #[derive(PartialEq, Eq, PartialOrd, Ord, Debug)]
         pub struct ByteString<const N: usize>([u8; N]);
@@ -48,25 +69,24 @@ pub mod fixed {
 
         #[cfg(test)]
         mod tests {
-            use crate::{builder::owned::OwnedBuilder, hex};
             use super::*;
             use crate::parse::hexstring::HexString;
+            use crate::{builder::owned::OwnedBuilder, hex};
 
             #[test]
             fn bytestring_hex() {
                 let hex = hex!("deadbeef");
                 let b = ByteString::<4>::decode(hex);
-                assert_eq!(b, ByteString([0xde,0xad,0xbe,0xef]));
+                assert_eq!(b, ByteString([0xde, 0xad, 0xbe, 0xef]));
                 assert_eq!(b.encode::<OwnedBuilder>().show_hex(), "deadbeef");
             }
-            
+
             #[test]
             fn bytestring_ascii() {
                 let b = ByteString::<12>::decode("hello world!");
                 assert_eq!(b, ByteString::from(b"hello world!"));
                 assert_eq!(b.encode::<OwnedBuilder>().show().unwrap(), "hello world!");
             }
-
         }
     }
 
@@ -75,21 +95,26 @@ pub mod fixed {
 
         use crate::builder::Builder;
         use crate::conv::{Decode, Encode};
-        use crate::parse::{byteparser::ToParser};
+        use crate::parse::byteparser::ToParser;
 
         #[derive(PartialEq, Eq, PartialOrd, Ord, Debug)]
         pub struct CharString<const N: usize> {
-            contents: [u8; N]
+            contents: [u8; N],
         }
 
         impl<const N: usize> From<&str> for CharString<N> {
             fn from(x: &str) -> Self {
                 let n = x.len();
                 if N != n {
-                    panic!("Cannot convert {}-byte string into CharString<{}>: `{}`", n, N, x);
+                    panic!(
+                        "Cannot convert {}-byte string into CharString<{}>: `{}`",
+                        n, N, x
+                    );
                 }
-                Self { contents: x.as_bytes().try_into().unwrap() }
-           }
+                Self {
+                    contents: x.as_bytes().try_into().unwrap(),
+                }
+            }
         }
 
         impl<const N: usize> From<[u8; N]> for CharString<N> {
@@ -100,7 +125,9 @@ pub mod fixed {
 
         impl<const N: usize> From<&[u8; N]> for CharString<N> {
             fn from(arr: &[u8; N]) -> Self {
-                Self { contents: arr.to_owned() }
+                Self {
+                    contents: arr.to_owned(),
+                }
             }
         }
 
@@ -132,9 +159,11 @@ pub mod fixed {
             fn check_arr<const N: usize>(case: &[u8; N]) {
                 let res = CharString::<N>::decode(case);
                 assert_eq!(res, CharString::from(case));
-                assert_eq!(<OwnedBuilder as Borrow<[u8]>>::borrow(&res.encode::<OwnedBuilder>()), case);
+                assert_eq!(
+                    <OwnedBuilder as Borrow<[u8]>>::borrow(&res.encode::<OwnedBuilder>()),
+                    case
+                );
             }
-
 
             #[test]
             fn charstring() {
