@@ -99,7 +99,7 @@ pub mod hexstring {
         type Output = HexString;
 
         fn add(self, rhs: HexString) -> Self::Output {
-            let words : Vec<u8> = self.into_iter().chain(rhs.into_iter()).collect();
+            let words: Vec<u8> = self.into_iter().chain(rhs.into_iter()).collect();
             Self { words }
         }
     }
@@ -231,40 +231,63 @@ pub mod bytes {
 
     use super::hexstring::HexString;
 
-    pub struct Bytes(Vec<u8>);
+    pub struct ByteSlice<'a>(&'a [u8]);
+    pub struct OwnedBytes(Vec<u8>);
 
-    impl From<&[u8]> for Bytes {
+    impl<'a> From<&'a [u8]> for ByteSlice<'a> {
+        fn from(bytes: &'a [u8]) -> Self {
+            Self(bytes)
+        }
+    }
+
+    impl From<&[u8]> for OwnedBytes {
         fn from(bytes: &[u8]) -> Self {
             Self(bytes.to_owned())
         }
     }
 
-    impl From<Vec<u8>> for Bytes {
+    impl From<Vec<u8>> for OwnedBytes {
         fn from(bytes: Vec<u8>) -> Self {
             Self(bytes)
         }
     }
 
-    impl<const N: usize> From<[u8; N]> for Bytes {
+    impl<const N: usize> From<[u8; N]> for OwnedBytes {
         fn from(bytes: [u8; N]) -> Self {
             Self(bytes.to_vec())
         }
     }
 
-    impl From<HexString> for Bytes {
+    impl From<HexString> for OwnedBytes {
         fn from(hex: HexString) -> Self {
-            Bytes(hex.to_vec())
+            OwnedBytes(hex.to_vec())
         }
     }
 
-    impl From<&str> for Bytes {
+    impl From<&str> for OwnedBytes {
         fn from(s: &str) -> Self {
             hex!(s).into()
             // Bytes(s.as_bytes().to_owned())
         }
     }
 
-    impl Bytes {
+    /* 
+    impl<'a> ByteSlice<'a> {
+        pub unsafe fn take(&self, len: usize) -> (&'a [u8], Self) {
+            (&self.0[..len], Self(&self.0[len..]))
+        }
+
+        pub unsafe fn pop(&self) -> (u8, Self) {
+            (self.0[0], Self(&self.0[1..]))
+        }
+
+        pub fn len(&self) -> usize {
+            self.0.len()
+        }
+    }
+    */
+
+    impl OwnedBytes {
         pub unsafe fn get_slice(&self, ix: usize, len: usize) -> &[u8] {
             &self.0[ix..ix + len]
         }
@@ -282,24 +305,26 @@ pub mod bytes {
 pub mod byteparser {
     use crate::parse::errors::InternalErrorKind;
 
-    use super::bytes::Bytes;
+    use super::bytes::OwnedBytes;
     use super::errors::ParseError;
     use std::cell::Cell;
     use std::convert::{TryFrom, TryInto};
     use std::ops::Deref;
 
+    pub type ParseResult<T> = Result<T, ParseError>;
+
     pub struct ByteParser {
-        _buf: Bytes,
+        _buf: OwnedBytes,
         _offset: Cell<usize>,
     }
 
     impl ByteParser {
         pub fn parse<T>(input: T) -> Self
         where
-            Bytes: TryFrom<T>,
-            <T as TryInto<Bytes>>::Error: std::fmt::Display,
+            OwnedBytes: TryFrom<T>,
+            <T as TryInto<OwnedBytes>>::Error: std::fmt::Display,
         {
-            match Bytes::try_from(input) {
+            match OwnedBytes::try_from(input) {
                 Ok(_buf) => Self {
                     _buf,
                     _offset: Cell::new(0usize),
@@ -307,7 +332,9 @@ pub mod byteparser {
                 Err(e) => panic!("ByteParser::parse: error encountered: {}", e),
             }
         }
+    }
 
+    impl ByteParser {
         fn next(&self) -> Option<&u8> {
             let cur: usize = self._offset.get();
             let tgt = cur + 1;
@@ -323,7 +350,7 @@ pub mod byteparser {
             }
         }
 
-        fn consume(&self, nbytes: usize) -> Result<&[u8], ParseError> {
+        fn consume(&self, nbytes: usize) -> ParseResult<&[u8]> {
             let cur: usize = self._offset.get();
 
             let tgt = cur + nbytes;
@@ -345,7 +372,7 @@ pub mod byteparser {
     }
 
     impl ByteParser {
-        pub fn get_u8(&self) -> Result<u8, ParseError> {
+        pub fn get_u8(&self) -> ParseResult<u8> {
             match self.next() {
                 Some(&byte) => Ok(byte),
                 None => Err(ParseError::BufferOverflow {
@@ -356,7 +383,7 @@ pub mod byteparser {
             }
         }
 
-        pub fn get_i8(&self) -> Result<i8, ParseError> {
+        pub fn get_i8(&self) -> ParseResult<i8> {
             match self.next() {
                 Some(&byte) => Ok(byte as i8),
                 None => Err(ParseError::BufferOverflow {
@@ -369,7 +396,7 @@ pub mod byteparser {
     }
 
     impl ByteParser {
-        fn consume_arr<const N: usize>(&self) -> Result<[u8; N], ParseError> {
+        fn consume_arr<const N: usize>(&self) -> ParseResult<[u8; N]> {
             let ret = self.consume(N);
             match ret {
                 Err(e) => Err(e),
@@ -381,33 +408,33 @@ pub mod byteparser {
     }
 
     impl ByteParser {
-        pub fn get_u16(&self) -> Result<u16, ParseError> {
+        pub fn get_u16(&self) -> ParseResult<u16> {
             self.consume_arr::<2>().map(u16::from_be_bytes)
         }
 
-        pub fn get_i16(&self) -> Result<i16, ParseError> {
+        pub fn get_i16(&self) -> ParseResult<i16> {
             self.consume_arr::<2>().map(i16::from_be_bytes)
         }
 
-        pub fn get_u32(&self) -> Result<u32, ParseError> {
+        pub fn get_u32(&self) -> ParseResult<u32> {
             self.consume_arr::<4>().map(u32::from_be_bytes)
         }
 
-        pub fn get_i32(&self) -> Result<i32, ParseError> {
+        pub fn get_i32(&self) -> ParseResult<i32> {
             self.consume_arr::<4>().map(i32::from_be_bytes)
         }
 
-        pub fn get_u64(&self) -> Result<u64, ParseError> {
+        pub fn get_u64(&self) -> ParseResult<u64> {
             self.consume_arr::<8>().map(u64::from_be_bytes)
         }
 
-        pub fn get_i64(&self) -> Result<i64, ParseError> {
+        pub fn get_i64(&self) -> ParseResult<i64> {
             self.consume_arr::<8>().map(i64::from_be_bytes)
         }
     }
 
     impl ByteParser {
-        pub fn get_bool(&self) -> Result<bool, ParseError> {
+        pub fn get_bool(&self) -> ParseResult<bool> {
             match self.next() {
                 Some(&byte) => match byte {
                     0xff => Ok(true),
@@ -424,11 +451,11 @@ pub mod byteparser {
     }
 
     impl ByteParser {
-        pub fn get_dynamic(&self, nbytes: usize) -> Result<Vec<u8>, ParseError> {
+        pub fn get_dynamic(&self, nbytes: usize) -> ParseResult<Vec<u8>> {
             self.consume(nbytes).map(Vec::from)
         }
 
-        pub fn get_fixed<const N: usize>(&self) -> Result<[u8; N], ParseError> {
+        pub fn get_fixed<const N: usize>(&self) -> ParseResult<[u8; N]> {
             self.consume_arr::<N>()
         }
     }
@@ -445,8 +472,8 @@ pub mod byteparser {
 
     impl<T> ToParser for T
     where
-        Bytes: TryFrom<T>,
-        <T as TryInto<Bytes>>::Error: std::fmt::Display,
+        OwnedBytes: TryFrom<T>,
+        <T as TryInto<OwnedBytes>>::Error: std::fmt::Display,
     {
         fn to_parser(self) -> ByteParser {
             ByteParser::parse(self)
