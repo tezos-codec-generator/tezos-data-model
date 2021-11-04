@@ -271,7 +271,7 @@ pub mod bytes {
         }
     }
 
-    /* 
+    /*
     impl<'a> ByteSlice<'a> {
         pub unsafe fn take(&self, len: usize) -> (&'a [u8], Self) {
             (&self.0[..len], Self(&self.0[len..]))
@@ -303,82 +303,69 @@ pub mod bytes {
 }
 
 pub mod byteparser {
+    use crate::internal::{Marker, Offset};
     use crate::parse::errors::InternalErrorKind;
 
     use super::bytes::OwnedBytes;
     use super::errors::ParseError;
-    use std::cell::Cell;
     use std::convert::{TryFrom, TryInto};
     use std::ops::Deref;
 
     pub type ParseResult<T> = Result<T, ParseError>;
 
-    pub struct ByteParser {
-        _buf: OwnedBytes,
-        _offset: Cell<usize>,
+    pub struct ByteParser<M = Offset> {
+        buffer: OwnedBytes,
+        offset: M,
     }
 
-    impl ByteParser {
+    impl ByteParser<Offset> {
         pub fn parse<T>(input: T) -> Self
         where
             OwnedBytes: TryFrom<T>,
             <T as TryInto<OwnedBytes>>::Error: std::fmt::Display,
         {
             match OwnedBytes::try_from(input) {
-                Ok(_buf) => Self {
-                    _buf,
-                    _offset: Cell::new(0usize),
-                },
+                Ok(buffer) => {
+                    let offset = Offset::new(buffer.len());
+                    Self { buffer, offset }
+                }
                 Err(e) => panic!("ByteParser::parse: error encountered: {}", e),
             }
         }
     }
 
-    impl ByteParser {
+    impl<M: Marker> ByteParser<M> {
         fn next(&self) -> Option<&u8> {
-            let cur: usize = self._offset.get();
-            let tgt = cur + 1;
-
-            if tgt > self._buf.len() {
-                None
+            let (ix, adv) = self.offset.advance(1);
+            if adv {
+                Some(unsafe { self.buffer.get_word(ix) })
             } else {
-                Some(unsafe {
-                    let ret = self._buf.get_word(cur);
-                    self._offset.set(tgt);
-                    ret
-                })
+                None
             }
         }
 
         fn consume(&self, nbytes: usize) -> ParseResult<&[u8]> {
-            let cur: usize = self._offset.get();
-
-            let tgt = cur + nbytes;
-
-            if cur + nbytes > self._buf.len() {
-                Err(ParseError::BufferOverflow {
-                    offset: cur,
-                    requested: nbytes,
-                    buflen: self._buf.len(),
-                })
+            let (ix, adv) = self.offset.advance(nbytes);
+            if adv {
+                Ok(unsafe { self.buffer.get_slice(ix, nbytes) })
             } else {
-                Ok(unsafe {
-                    let ret = self._buf.get_slice(cur, nbytes);
-                    self._offset.set(tgt);
-                    ret
+                Err(ParseError::BufferOverflow {
+                    offset: ix,
+                    requested: nbytes,
+                    buflen: self.buffer.len(),
                 })
             }
         }
     }
 
-    impl ByteParser {
+    impl<M: Marker> ByteParser<M> {
         pub fn get_u8(&self) -> ParseResult<u8> {
             match self.next() {
                 Some(&byte) => Ok(byte),
                 None => Err(ParseError::BufferOverflow {
-                    buflen: self._buf.len(),
+                    buflen: self.buffer.len(),
                     requested: 1,
-                    offset: self._offset.get(),
+                    offset: self.offset.get(),
                 }),
             }
         }
@@ -387,15 +374,13 @@ pub mod byteparser {
             match self.next() {
                 Some(&byte) => Ok(byte as i8),
                 None => Err(ParseError::BufferOverflow {
-                    buflen: self._buf.len(),
+                    buflen: self.buffer.len(),
                     requested: 1,
-                    offset: self._offset.get(),
+                    offset: self.offset.get(),
                 }),
             }
         }
-    }
 
-    impl ByteParser {
         fn consume_arr<const N: usize>(&self) -> ParseResult<[u8; N]> {
             let ret = self.consume(N);
             match ret {
@@ -405,9 +390,7 @@ pub mod byteparser {
                 ))),
             }
         }
-    }
 
-    impl ByteParser {
         pub fn get_u16(&self) -> ParseResult<u16> {
             self.consume_arr::<2>().map(u16::from_be_bytes)
         }
@@ -431,9 +414,7 @@ pub mod byteparser {
         pub fn get_i64(&self) -> ParseResult<i64> {
             self.consume_arr::<8>().map(i64::from_be_bytes)
         }
-    }
 
-    impl ByteParser {
         pub fn get_bool(&self) -> ParseResult<bool> {
             match self.next() {
                 Some(&byte) => match byte {
@@ -442,15 +423,13 @@ pub mod byteparser {
                     _ => Err(ParseError::InvalidBoolean(byte)),
                 },
                 None => Err(ParseError::BufferOverflow {
-                    buflen: self._buf.len(),
+                    buflen: self.buffer.len(),
                     requested: 1,
-                    offset: self._offset.get(),
+                    offset: self.offset.get(),
                 }),
             }
         }
-    }
 
-    impl ByteParser {
         pub fn get_dynamic(&self, nbytes: usize) -> ParseResult<Vec<u8>> {
             self.consume(nbytes).map(Vec::from)
         }
@@ -460,12 +439,15 @@ pub mod byteparser {
         }
     }
 
-    pub trait ToParser {
-        fn to_parser(self) -> ByteParser;
+    pub trait ToParser<M = Offset>
+    where
+        M: Marker,
+    {
+        fn to_parser(self) -> ByteParser<M>;
     }
 
-    impl ToParser for ByteParser {
-        fn to_parser(self) -> ByteParser {
+    impl<M: Marker> ToParser<M> for ByteParser<M> {
+        fn to_parser(self) -> Self {
             self
         }
     }

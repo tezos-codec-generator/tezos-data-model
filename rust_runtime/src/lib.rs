@@ -1,9 +1,10 @@
-mod builder;
-mod conv;
-mod int;
-mod parse;
-mod prim;
-mod util;
+pub mod builder;
+pub mod conv;
+pub mod int;
+pub mod parse;
+pub mod prim;
+pub mod util;
+mod internal;
 
 pub use crate::conv::{Decode, Encode};
 pub use crate::int::{i31, u30};
