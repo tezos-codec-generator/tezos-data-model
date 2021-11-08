@@ -4,6 +4,7 @@ use crate::builder::{self, Builder};
 use std::convert::{TryFrom, TryInto};
 use std::fmt::{Debug, Display};
 
+/// Marker trait used as shorthand for the desired trait bounds on `RangedInt` backing types
 pub trait Integral: Eq + Ord + Debug + Display + Copy + Into<i64> + TryFrom<i64> {}
 impl Integral for u8 {}
 impl Integral for i8 {}
@@ -12,13 +13,25 @@ impl Integral for u16 {}
 impl Integral for u32 {}
 impl Integral for i32 {}
 
-#[derive(Debug)]
+/// Error type representing RangedInt values that fall outside of their specified range
+#[derive(Debug, PartialEq, Eq)]
 pub enum OutOfRange {
     Underflow { min: i64, val: i64 },
     Overflow { max: i64, val: i64 },
 }
 
 impl OutOfRange {
+    /// Restricts input values of an integral type `T: Into<i64> + Copy>`
+    /// into the range defined by a lower and upper bound of type `U: Into<i64>`.
+    /// 
+    /// If the provided value is within the range bounds, returns that value wrapped in an `Ok`
+    /// constructor; otherwise returns an `Err` containing the appropriate `OutOfRange` variant.
+    /// 
+    /// # Examples
+    /// ```
+    /// assert_eq!(Ok(5u8), OutOfRange::restrict(5u8, 0u16, 10u16));
+    /// assert_eq!(Err(OutOfRange::Underflow { min: 3i64, val: 2i64 }), OutOfRange::restrict(2u32, 3i8, 10i8));
+    /// ```
     pub fn restrict<T, U>(x: T, min: U, max: U) -> Result<T, Self>
     where
         T: Into<i64> + Copy,

@@ -2,20 +2,30 @@ use std::{borrow::Borrow, string::FromUtf8Error};
 
 use crate::util::hex_of_bytes;
 
+/// Builder: Serialization Target Object Abstraction
+/// 
+/// Monoidal (through `std::ops::Add`) string-builder
+/// made up of raw bytes, that can be displayed as a hexstring
+/// or a raw minary string
 pub trait Builder
 where
     Self: Borrow<[u8]> + Clone + std::ops::Add<Self, Output = Self>,
 {
+    /// Constructor used for instantiating builders that consist of a single 8-bit word
     fn word(b: u8) -> Self;
 
+    /// Constructor used for instantiating builders that consist of a fixed-size array of 8-bit words
     fn words<const N: usize>(b: [u8; N]) -> Self;
 
+    /// Consume the Builder object and return a vector of its contents
     fn into_vec(self) -> Vec<u8>;
 
+    // Return a string consisting of the raw hexadecimal sequence of words in the Builder
     fn show_hex(&self) -> String {
         hex_of_bytes(self.borrow())
     }
 
+    // Attempt to convert the Builder object into a string in binary representation
     fn show(&self) -> Result<String, FromUtf8Error> {
         String::from_utf8(self.clone().into_vec())
     }
@@ -99,6 +109,20 @@ pub mod owned {
             Self {
                 buf: Vec::with_capacity(cap),
             }
+        }
+
+        pub fn push(&mut self, byte: u8) {
+            self.buf.push(byte);
+        }
+
+        pub fn append<T: Borrow<[u8]>>(&mut self, extra: T) {
+            self.buf.extend_from_slice(extra.borrow());
+        }
+    }
+
+    impl Extend<u8> for OwnedBuilder {
+        fn extend<T: IntoIterator<Item = u8>>(&mut self, iter: T) {
+            self.buf.extend(iter);
         }
     }
 
