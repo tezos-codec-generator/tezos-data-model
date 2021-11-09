@@ -8,6 +8,7 @@ pub mod fixed;
 pub mod dynamic;
 mod internal;
 
+pub use crate::dynamic::Dynamic;
 pub use crate::conv::{Decode, Encode};
 pub use crate::int::{i31, u30};
 pub use crate::parse::{

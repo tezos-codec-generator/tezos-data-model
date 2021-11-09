@@ -9,7 +9,7 @@ pub struct Dynamic<S, T> {
     _phantom: std::marker::PhantomData<S>,
 }
 
-trait LenPref
+pub trait LenPref
 where
     Self: Into<usize> + TryFrom<usize> + Copy + Encode + Decode,
 {
@@ -21,28 +21,27 @@ impl LenPref for u30 {}
 
 
 
-impl<T: Encode> Encode for Dynamic<u8, T> {
+impl<S: LenPref, T: Encode> Encode for Dynamic<S, T> {
     fn encode<U: Builder>(&self) -> U {
         let payload = Encode::encode::<U>(&self.contents);
         let l = payload.len();
 
         if let Ok(lp) = l.try_into() {
-            u8::encode::<U>(&lp) + payload
+            S::encode::<U>(&lp) + payload
         } else {
             panic!(
-                "Dynamic<u8, _>: Length prefix {} does not fit into u8 range",
+                "Dynamic<{}, _>: Length prefix {} exceeds bounds of associated type",
+                std::any::type_name::<S>(),
                 l
             );
         }
     }
 }
 
-impl<T: Decode> Decode for Dynamic<u8, T> {
+impl<S: LenPref, T: Decode> Decode for Dynamic<S, T> {
     fn parse<P: Parser>(p: &mut P) -> Self {
-        let buflen = p
-            .get_u8()
-            .expect("Decode dynamic: could not read 1-byte prefix");
-        p.set_fit(buflen as usize);
+        let buflen = S::parse(p);
+        p.set_fit(buflen.into());
         let contents = T::parse(p);
         p.enforce_target();
         Dynamic {
