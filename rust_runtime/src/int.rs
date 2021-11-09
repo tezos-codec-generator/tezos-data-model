@@ -1,6 +1,6 @@
-use crate::conv::{Decode, Encode};
-use crate::parse::byteparser::ToParser;
 use crate::builder::{self, Builder};
+use crate::conv::{Decode, Encode};
+use crate::Parser;
 use std::convert::{TryFrom, TryInto};
 use std::fmt::{Debug, Display};
 
@@ -23,15 +23,10 @@ pub enum OutOfRange {
 impl OutOfRange {
     /// Restricts input values of an integral type `T: Into<i64> + Copy>`
     /// into the range defined by a lower and upper bound of type `U: Into<i64>`.
-    /// 
+    ///
     /// If the provided value is within the range bounds, returns that value wrapped in an `Ok`
     /// constructor; otherwise returns an `Err` containing the appropriate `OutOfRange` variant.
-    /// 
-    /// # Examples
-    /// ```
-    /// assert_eq!(Ok(5u8), OutOfRange::restrict(5u8, 0u16, 10u16));
-    /// assert_eq!(Err(OutOfRange::Underflow { min: 3i64, val: 2i64 }), OutOfRange::restrict(2u32, 3i8, 10i8));
-    /// ```
+    ///
     pub fn restrict<T, U>(x: T, min: U, max: U) -> Result<T, Self>
     where
         T: Into<i64> + Copy,
@@ -85,6 +80,13 @@ where
     }
 }
 
+impl Into<usize> for u30
+{
+    fn into(self) -> usize {
+        self.val as usize
+    }
+}
+
 impl<I, const MIN: i32, const MAX: i32> TryFrom<i32> for RangedInt<I, MIN, MAX>
 where
     I: Integral,
@@ -100,6 +102,17 @@ where
     }
 }
 
+impl TryFrom<usize> for u30
+{
+    type Error = OutOfRange;
+
+    fn try_from(x: usize) -> Result<Self, Self::Error> {
+        match u32::try_from(x) {
+            Ok(val) => OutOfRange::restrict(val, 0u32, 0x3fff_ffffu32).map(|val| Self { val }),
+            Err(_) => Err(OutOfRange::Overflow { max: 0x3fff_ffffi64, val: x as i64 }),
+        }
+    }
+}
 impl<I, const MIN: i32, const MAX: i32> TryFrom<u32> for RangedInt<I, MIN, MAX>
 where
     I: Integral,
@@ -187,50 +200,43 @@ impl_encode_words!(i32);
 impl_encode_words!(i64);
 
 impl Decode for u8 {
-    fn decode(inp: impl ToParser) -> Self {
-        let p = inp.to_parser();
+    fn parse<P: Parser>(p: &mut P) -> Self {
         p.get_u8().unwrap()
     }
 }
 
 impl Decode for i8 {
-    fn decode(inp: impl ToParser) -> Self {
-        let p = inp.to_parser();
+    fn parse<P: Parser>(p: &mut P) -> Self {
         p.get_i8().unwrap()
     }
 }
 
 impl Decode for u16 {
-    fn decode(inp: impl ToParser) -> Self {
-        let p = inp.to_parser();
+    fn parse<P: Parser>(p: &mut P) -> Self {
         p.get_u16().unwrap()
     }
 }
 
 impl Decode for i16 {
-    fn decode(inp: impl ToParser) -> Self {
-        let p = inp.to_parser();
+    fn parse<P: Parser>(p: &mut P) -> Self {
         p.get_i16().unwrap()
     }
 }
 
 impl Decode for i32 {
-    fn decode(inp: impl ToParser) -> Self {
-        let p = inp.to_parser();
+    fn parse<P: Parser>(p: &mut P) -> Self {
         p.get_i32().unwrap()
     }
 }
 
 impl Decode for u32 {
-    fn decode(inp: impl ToParser) -> Self {
-        let p = inp.to_parser();
+    fn parse<P: Parser>(p: &mut P) -> Self {
         p.get_u32().unwrap()
     }
 }
 
 impl Decode for i64 {
-    fn decode(inp: impl ToParser) -> Self {
-        let p = inp.to_parser();
+    fn parse<P: Parser>(p: &mut P) -> Self {
         p.get_i64().unwrap()
     }
 }
@@ -257,9 +263,8 @@ where
     I: Integral + Decode,
     <I as TryFrom<i64>>::Error: std::fmt::Debug,
 {
-    fn decode(inp: impl ToParser) -> Self {
-        let p = inp.to_parser();
-        let raw = I::decode(p);
+    fn parse<P: Parser>(p: &mut P) -> Self {
+        let raw = I::parse(p);
         if MIN > 0 {
             let rval: i64 = raw.into() + i64::from(MIN);
             if rval > MAX.into() {

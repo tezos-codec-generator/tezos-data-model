@@ -1,15 +1,15 @@
-use std::{borrow::Borrow, string::FromUtf8Error};
+use std::{borrow::Borrow, iter::FromIterator, string::FromUtf8Error};
 
 use crate::util::hex_of_bytes;
 
 /// Builder: Serialization Target Object Abstraction
-/// 
+///
 /// Monoidal (through `std::ops::Add`) string-builder
 /// made up of raw bytes, that can be displayed as a hexstring
 /// or a raw minary string
 pub trait Builder
 where
-    Self: Borrow<[u8]> + Clone + std::ops::Add<Self, Output = Self>,
+    Self: Borrow<[u8]> + Clone + std::ops::Add<Self, Output = Self> + FromIterator<u8>,
 {
     /// Constructor used for instantiating builders that consist of a single 8-bit word
     fn word(b: u8) -> Self;
@@ -29,10 +29,13 @@ where
     fn show(&self) -> Result<String, FromUtf8Error> {
         String::from_utf8(self.clone().into_vec())
     }
+
+    // Determine the length of the Builder value in bytes
+    fn len(&self) -> usize;
 }
 
 pub mod owned {
-    use std::{borrow::Borrow, ops::Add};
+    use std::{borrow::Borrow, iter::FromIterator, ops::Add};
 
     pub struct OwnedBuilder {
         buf: Vec<u8>,
@@ -78,6 +81,14 @@ pub mod owned {
         }
     }
 
+    impl FromIterator<u8> for OwnedBuilder {
+        fn from_iter<T: IntoIterator<Item = u8>>(iter: T) -> Self {
+            Self {
+                buf: iter.into_iter().collect(),
+            }
+        }
+    }
+
     impl Clone for OwnedBuilder {
         fn clone(&self) -> Self {
             Self {
@@ -97,6 +108,10 @@ pub mod owned {
 
         fn into_vec(self) -> Vec<u8> {
             self.into()
+        }
+
+        fn len(&self) -> usize {
+            self.buf.len()
         }
     }
 

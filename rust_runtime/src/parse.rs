@@ -78,7 +78,7 @@ pub mod errors {
 pub mod hexstring {
     use super::errors::ConvError::{self, HexError, ParityError};
     use crate::{builder::Builder, util::hex_of_bytes};
-    use std::{borrow::Borrow, convert::TryFrom, vec::IntoIter};
+    use std::{borrow::Borrow, convert::TryFrom, iter::FromIterator, vec::IntoIter};
 
     #[derive(PartialEq, Eq, PartialOrd, Ord, Debug, Clone)]
     pub struct HexString {
@@ -124,6 +124,14 @@ pub mod hexstring {
         }
     }
 
+    impl FromIterator<u8> for HexString {
+        fn from_iter<T: IntoIterator<Item = u8>>(iter: T) -> Self {
+            Self {
+                words: iter.into_iter().collect::<Vec<u8>>(),
+            }
+        }
+    }
+
     impl TryFrom<&str> for HexString {
         type Error = ConvError<String>;
 
@@ -166,6 +174,10 @@ pub mod hexstring {
 
         fn into_vec(self) -> Vec<u8> {
             self.words
+        }
+
+        fn len(&self) -> usize {
+            self.words.len()
         }
     }
 
@@ -227,8 +239,6 @@ pub mod hexstring {
 }
 
 pub mod bytes {
-    use crate::hex;
-
     use super::hexstring::HexString;
 
     pub struct ByteSlice<'a>(&'a [u8]);
@@ -260,14 +270,14 @@ pub mod bytes {
 
     impl From<HexString> for OwnedBytes {
         fn from(hex: HexString) -> Self {
-            OwnedBytes(hex.to_vec())
+            Self(hex.to_vec())
         }
     }
 
     impl From<&str> for OwnedBytes {
         fn from(s: &str) -> Self {
-            hex!(s).into()
-            // Bytes(s.as_bytes().to_owned())
+            // hex!(s).into()
+            Self(s.as_bytes().to_owned())
         }
     }
 
@@ -303,7 +313,7 @@ pub mod bytes {
 }
 
 pub mod byteparser {
-    use crate::internal::{Marker, Offset};
+    use crate::internal::{BoundAwareMarker, ContextOffset, Marker};
     use crate::parse::errors::InternalErrorKind;
 
     use super::bytes::OwnedBytes;
@@ -313,12 +323,107 @@ pub mod byteparser {
 
     pub type ParseResult<T> = Result<T, ParseError>;
 
-    pub struct ByteParser<M = Offset> {
-        buffer: OwnedBytes,
-        offset: M,
+    pub trait Parser {
+        fn len(&self) -> usize;
+
+        fn offset(&self) -> usize;
+
+        fn next(&mut self) -> Option<&u8>;
+
+        fn consume(&mut self, nbytes: usize) -> ParseResult<&[u8]>;
+
+        fn set_fit(&mut self, n: usize);
+
+        fn test_target(&mut self) -> bool;
+
+        fn enforce_target(&mut self);
+
+        fn consume_arr<const N: usize>(&mut self) -> ParseResult<[u8; N]> {
+            let ret = self.consume(N);
+            match ret {
+                Err(e) => Err(e),
+                Ok(bytes) => bytes.try_into().or(Err(ParseError::InternalError(
+                    InternalErrorKind::SliceCoerceFailure,
+                ))),
+            }
+        }
+
+        fn get_u8(&mut self) -> ParseResult<u8> {
+            match self.next() {
+                Some(&byte) => Ok(byte),
+                None => Err(ParseError::BufferOverflow {
+                    buflen: self.len(),
+                    requested: 1,
+                    offset: self.offset(),
+                }),
+            }
+        }
+
+        fn get_i8(&mut self) -> ParseResult<i8> {
+            match self.next() {
+                Some(&byte) => Ok(byte as i8),
+                None => Err(ParseError::BufferOverflow {
+                    buflen: self.len(),
+                    requested: 1,
+                    offset: self.offset(),
+                }),
+            }
+        }
+
+        fn get_u16(&mut self) -> ParseResult<u16> {
+            self.consume_arr::<2>().map(u16::from_be_bytes)
+        }
+
+        fn get_i16(&mut self) -> ParseResult<i16> {
+            self.consume_arr::<2>().map(i16::from_be_bytes)
+        }
+
+        fn get_u32(&mut self) -> ParseResult<u32> {
+            self.consume_arr::<4>().map(u32::from_be_bytes)
+        }
+
+        fn get_i32(&mut self) -> ParseResult<i32> {
+            self.consume_arr::<4>().map(i32::from_be_bytes)
+        }
+
+        fn get_u64(&mut self) -> ParseResult<u64> {
+            self.consume_arr::<8>().map(u64::from_be_bytes)
+        }
+
+        fn get_i64(&mut self) -> ParseResult<i64> {
+            self.consume_arr::<8>().map(i64::from_be_bytes)
+        }
+
+        fn get_bool(&mut self) -> ParseResult<bool> {
+            match self.next() {
+                Some(&byte) => match byte {
+                    0xff => Ok(true),
+                    0x00 => Ok(false),
+                    _ => Err(ParseError::InvalidBoolean(byte)),
+                },
+                None => Err(ParseError::BufferOverflow {
+                    buflen: self.len(),
+                    requested: 1,
+                    offset: self.offset(),
+                }),
+            }
+        }
+
+        fn get_dynamic(&mut self, nbytes: usize) -> ParseResult<Vec<u8>> {
+            self.consume(nbytes).map(Vec::from)
+        }
+
+        fn get_fixed<const N: usize>(&mut self) -> ParseResult<[u8; N]> {
+            self.consume_arr::<N>()
+        }
     }
 
-    impl ByteParser<Offset> {
+    pub struct ByteParser {
+        buffer: OwnedBytes,
+        offset: ContextOffset,
+    }
+
+    impl ByteParser {
         pub fn parse<T>(input: T) -> Self
         where
             OwnedBytes: TryFrom<T>,
@@ -326,7 +431,7 @@ pub mod byteparser {
         {
             match OwnedBytes::try_from(input) {
                 Ok(buffer) => {
-                    let offset = Offset::new(buffer.len());
+                    let offset = ContextOffset::new(buffer.len());
                     Self { buffer, offset }
                 }
                 Err(e) => panic!("ByteParser::parse: error encountered: {}", e),
@@ -334,8 +439,27 @@ pub mod byteparser {
         }
     }
 
-    impl<M: Marker> ByteParser<M> {
-        fn next(&self) -> Option<&u8> {
+    impl Parser for ByteParser {
+        fn len(&self) -> usize {
+            self.offset.lim()
+        }
+
+        fn offset(&self) -> usize {
+            self.offset.get()
+        }
+
+        fn set_fit(&mut self, n: usize) {
+            self.offset.set_fit(n)
+        }
+
+        fn test_target(&mut self) -> bool {
+            self.offset.test_target()
+        }
+
+        fn enforce_target(&mut self) {
+            self.offset.enforce_target()
+        }
+        fn next(&mut self) -> Option<&u8> {
             let (ix, adv) = self.offset.advance(1);
             if adv {
                 Some(unsafe { self.buffer.get_word(ix) })
@@ -344,7 +468,7 @@ pub mod byteparser {
             }
         }
 
-        fn consume(&self, nbytes: usize) -> ParseResult<&[u8]> {
+        fn consume(&mut self, nbytes: usize) -> ParseResult<&[u8]> {
             let (ix, adv) = self.offset.advance(nbytes);
             if adv {
                 Ok(unsafe { self.buffer.get_slice(ix, nbytes) })
@@ -358,95 +482,11 @@ pub mod byteparser {
         }
     }
 
-    impl<M: Marker> ByteParser<M> {
-        pub fn get_u8(&self) -> ParseResult<u8> {
-            match self.next() {
-                Some(&byte) => Ok(byte),
-                None => Err(ParseError::BufferOverflow {
-                    buflen: self.buffer.len(),
-                    requested: 1,
-                    offset: self.offset.get(),
-                }),
-            }
-        }
-
-        pub fn get_i8(&self) -> ParseResult<i8> {
-            match self.next() {
-                Some(&byte) => Ok(byte as i8),
-                None => Err(ParseError::BufferOverflow {
-                    buflen: self.buffer.len(),
-                    requested: 1,
-                    offset: self.offset.get(),
-                }),
-            }
-        }
-
-        fn consume_arr<const N: usize>(&self) -> ParseResult<[u8; N]> {
-            let ret = self.consume(N);
-            match ret {
-                Err(e) => Err(e),
-                Ok(bytes) => bytes.try_into().or(Err(ParseError::InternalError(
-                    InternalErrorKind::SliceCoerceFailure,
-                ))),
-            }
-        }
-
-        pub fn get_u16(&self) -> ParseResult<u16> {
-            self.consume_arr::<2>().map(u16::from_be_bytes)
-        }
-
-        pub fn get_i16(&self) -> ParseResult<i16> {
-            self.consume_arr::<2>().map(i16::from_be_bytes)
-        }
-
-        pub fn get_u32(&self) -> ParseResult<u32> {
-            self.consume_arr::<4>().map(u32::from_be_bytes)
-        }
-
-        pub fn get_i32(&self) -> ParseResult<i32> {
-            self.consume_arr::<4>().map(i32::from_be_bytes)
-        }
-
-        pub fn get_u64(&self) -> ParseResult<u64> {
-            self.consume_arr::<8>().map(u64::from_be_bytes)
-        }
-
-        pub fn get_i64(&self) -> ParseResult<i64> {
-            self.consume_arr::<8>().map(i64::from_be_bytes)
-        }
-
-        pub fn get_bool(&self) -> ParseResult<bool> {
-            match self.next() {
-                Some(&byte) => match byte {
-                    0xff => Ok(true),
-                    0x00 => Ok(false),
-                    _ => Err(ParseError::InvalidBoolean(byte)),
-                },
-                None => Err(ParseError::BufferOverflow {
-                    buflen: self.buffer.len(),
-                    requested: 1,
-                    offset: self.offset.get(),
-                }),
-            }
-        }
-
-        pub fn get_dynamic(&self, nbytes: usize) -> ParseResult<Vec<u8>> {
-            self.consume(nbytes).map(Vec::from)
-        }
-
-        pub fn get_fixed<const N: usize>(&self) -> ParseResult<[u8; N]> {
-            self.consume_arr::<N>()
-        }
+    pub trait ToParser {
+        fn to_parser(self) -> ByteParser;
     }
 
-    pub trait ToParser<M = Offset>
-    where
-        M: Marker,
-    {
-        fn to_parser(self) -> ByteParser<M>;
-    }
-
-    impl<M: Marker> ToParser<M> for ByteParser<M> {
+    impl ToParser for ByteParser {
         fn to_parser(self) -> Self {
             self
         }
