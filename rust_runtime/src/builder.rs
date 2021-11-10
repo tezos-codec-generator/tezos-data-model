@@ -20,17 +20,22 @@ where
     /// Consume the Builder object and return a vector of its contents
     fn into_vec(self) -> Vec<u8>;
 
-    // Return a string consisting of the raw hexadecimal sequence of words in the Builder
+    /// Return a string consisting of the raw hexadecimal sequence of words in the Builder
     fn show_hex(&self) -> String {
         hex_of_bytes(self.borrow())
     }
 
-    // Attempt to convert the Builder object into a string in binary representation
+    /// Return a Builder object containing zero bytes. Defaults to words over empty array.
+    fn empty() -> Self {
+        Self::words([])
+    }
+
+    /// Attempt to convert the Builder object into a string in binary representation
     fn show(&self) -> Result<String, FromUtf8Error> {
         String::from_utf8(self.clone().into_vec())
     }
 
-    // Determine the length of the Builder value in bytes
+    /// Determine the length of the Builder value in bytes
     fn len(&self) -> usize;
 }
 
@@ -98,6 +103,10 @@ pub mod owned {
     }
 
     impl super::Builder for OwnedBuilder {
+        fn empty() -> Self {
+            Self { buf: Vec::new() }
+        }
+
         fn word(b: u8) -> Self {
             b.into()
         }

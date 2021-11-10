@@ -6,6 +6,7 @@ pub mod prim;
 pub mod util;
 pub mod fixed;
 pub mod dynamic;
+pub mod schema;
 mod internal;
 
 pub use crate::dynamic::Dynamic;
@@ -17,3 +18,4 @@ pub use crate::parse::{
 };
 pub use crate::fixed::{bytestring::ByteString, charstring::CharString};
 pub use crate::builder::{Builder, owned::OwnedBuilder};
+pub use crate::schema::{Bytes, Sequence};
