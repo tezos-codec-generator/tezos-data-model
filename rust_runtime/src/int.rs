@@ -154,7 +154,10 @@ where
 
     pub fn new(val: I) -> Self {
         Self::precheck();
-        if val.into() >= MIN.into() && val.into() <= MAX.into() {
+
+        let val64 : i64 = val.into();
+
+        if val64 >= (MIN as i64) && val64 <= (MAX as i64) {
             Self { val }
         } else {
             panic!(
@@ -267,14 +270,14 @@ where
         let raw = I::parse(p);
         if MIN > 0 {
             let rval: i64 = raw.into() + i64::from(MIN);
-            if rval > MAX.into() {
+            if rval > (MAX as i64) {
                 panic!("RangedInt::decode: value parsed would exceed range-bounds: {} > MAX (:= {}) - MIN (:= {})", raw, MAX, MIN)
             }
             Self::new(rval.try_into().unwrap())
         } else {
-            if raw.into() < MIN.into() {
+            if raw.into() < (MIN as i64) {
                 panic!("RangedInt::decode: value parsed would underflow minimum range-bound: {} < MIN (:= {})", raw, MIN)
-            } else if raw.into() > MAX.into() {
+            } else if raw.into() > (MAX as i64) {
                 panic!("RangedInt::decode: value parsed would overflow maximum range-bound: {} > MAX (:= {})", raw, MAX)
             } else {
                 Self::new(raw)

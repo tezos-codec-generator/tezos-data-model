@@ -11,3 +11,12 @@ path = "src/lib.rs"
 bench = false
 
 [dependencies]
+bitvec = "0.22"
+
+[dependencies.num-bigint]
+version = "0.3"
+
+[dependencies.rug]
+version = "1.13"
+default-features = false
+features = ["integer"]

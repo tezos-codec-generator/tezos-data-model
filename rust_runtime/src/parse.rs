@@ -52,6 +52,7 @@ pub mod errors {
             requested: usize,
         },
         InvalidBoolean(u8),
+        NonTerminating(Vec<u8>),
     }
 
     impl Display for ParseError {
@@ -63,13 +64,16 @@ pub mod errors {
                     requested,
                 } => {
                     write!(f, "cannot increment offset by {} bytes (currently at byte {} in buffer of length {})", requested, offset, buflen)
-                }
+                },
                 ParseError::InternalError(err) => {
                     write!(f, "internal error ({})", err)
-                }
+                },
                 ParseError::InvalidBoolean(byte) => {
                     write!(f, "expected boolean := (0xff | 0x00), got 0x{:02x}", byte)
-                }
+                },
+                ParseError::NonTerminating(buf) => {
+                    write!(f, "self-terminating codec cut off (end-of-window encountered before terminating condition met): `{}`", crate::util::hex_of_bytes(buf))
+                },
             }
         }
     }
@@ -302,8 +306,8 @@ pub mod bytes {
             &self.0[ix..ix + len]
         }
 
-        pub unsafe fn get_word(&self, ix: usize) -> &u8 {
-            &self.0[ix]
+        pub unsafe fn get_word(&self, ix: usize) -> u8 {
+            self.0[ix]
         }
 
         pub fn len(&self) -> usize {
@@ -323,12 +327,10 @@ pub mod byteparser {
 
     pub type ParseResult<T> = Result<T, ParseError>;
 
-    pub trait Parser {
+    pub trait Parser: Iterator<Item = u8> {
         fn len(&self) -> usize;
 
         fn offset(&self) -> usize;
-
-        fn next(&mut self) -> Option<&u8>;
 
         fn consume(&mut self, nbytes: usize) -> ParseResult<&[u8]>;
 
@@ -350,7 +352,7 @@ pub mod byteparser {
 
         fn get_u8(&mut self) -> ParseResult<u8> {
             match self.next() {
-                Some(&byte) => Ok(byte),
+                Some(byte) => Ok(byte),
                 None => Err(ParseError::BufferOverflow {
                     buflen: self.len(),
                     requested: 1,
@@ -361,7 +363,7 @@ pub mod byteparser {
 
         fn get_i8(&mut self) -> ParseResult<i8> {
             match self.next() {
-                Some(&byte) => Ok(byte as i8),
+                Some(byte) => Ok(byte as i8),
                 None => Err(ParseError::BufferOverflow {
                     buflen: self.len(),
                     requested: 1,
@@ -396,7 +398,7 @@ pub mod byteparser {
 
         fn get_bool(&mut self) -> ParseResult<bool> {
             match self.next() {
-                Some(&byte) => match byte {
+                Some(byte) => match byte {
                     0xff => Ok(true),
                     0x00 => Ok(false),
                     _ => Err(ParseError::InvalidBoolean(byte)),
@@ -415,6 +417,23 @@ pub mod byteparser {
 
         fn get_fixed<const N: usize>(&mut self) -> ParseResult<[u8; N]> {
             self.consume_arr::<N>()
+        }
+
+        fn get_self_terminating<F>(&mut self, is_terminal: F) -> ParseResult<Vec<u8>>
+        where
+        F: Fn(u8) -> bool
+        {
+            let mut ret : Vec<u8> = Vec::with_capacity(self.len() - self.offset());
+            loop {
+                if let Some(byte) = self.next() {
+                    ret.push(byte);
+                    if is_terminal(byte) {
+                        break Ok(ret)
+                    }
+                } else {
+                    break Err(ParseError::NonTerminating(ret))
+                }
+            }
         }
     }
 
@@ -439,6 +458,19 @@ pub mod byteparser {
         }
     }
 
+    impl Iterator for ByteParser {
+        type Item = u8;
+
+        fn next(&mut self) -> Option<Self::Item> {
+            let (ix, adv) = self.offset.advance(1);
+            if adv {
+                Some(unsafe { self.buffer.get_word(ix) })
+            } else {
+                None
+            }
+        }
+    }
+
     impl Parser for ByteParser {
         fn len(&self) -> usize {
             self.offset.lim()
@@ -458,14 +490,6 @@ pub mod byteparser {
 
         fn enforce_target(&mut self) {
             self.offset.enforce_target()
-        }
-        fn next(&mut self) -> Option<&u8> {
-            let (ix, adv) = self.offset.advance(1);
-            if adv {
-                Some(unsafe { self.buffer.get_word(ix) })
-            } else {
-                None
-            }
         }
 
         fn consume(&mut self, nbytes: usize) -> ParseResult<&[u8]> {
