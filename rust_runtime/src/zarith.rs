@@ -25,24 +25,18 @@ impl<I: Zarith> Decode for I {
 }
 
 pub mod n {
-    pub(crate) mod nat_big {
+    pub mod nat_big {
         use rug::ops::DivRounding;
-        use std::{fmt::Display, ops::Deref};
+        use std::{convert::TryInto, fmt::Display, ops::Deref};
 
         use num_bigint::BigUint;
 
         #[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
-        pub(crate) struct N(pub BigUint);
+        pub struct N(pub BigUint);
 
         impl Display for N {
             fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
                 <BigUint as Display>::fmt(&self.0, f)
-            }
-        }
-
-        impl From<BigUint> for N {
-            fn from(i: BigUint) -> Self {
-                Self(i)
             }
         }
 
@@ -51,6 +45,31 @@ pub mod n {
                 self.0
             }
         }
+
+        impl<T> From<T> for N
+        where
+            BigUint: From<T>,
+        {
+            fn from(i: T) -> Self {
+                Self(BigUint::from(i))
+            }
+        }
+
+        macro_rules! impl_nat_coerce {
+            ($src:ty) => {
+                impl TryInto<$src> for N {
+                    type Error = <BigUint as TryInto<$src>>::Error;
+                    fn try_into(self) -> Result<$src, Self::Error> {
+                        self.0.try_into()
+                    }
+                }
+            };
+        }
+
+        impl_nat_coerce!(u8);
+        impl_nat_coerce!(u16);
+        impl_nat_coerce!(u32);
+        impl_nat_coerce!(u64);
 
         impl Deref for N {
             type Target = BigUint;
@@ -69,46 +88,20 @@ pub mod n {
                 }
             }
 
-            /*
-            fn from_bytes(bytes: &[u8]) -> Self {
-                let mut n: BigUint = BigUint::new(vec![0u32]);
-                let mut bits: u32 = 0;
-
-                if bytes.len() == 0 {
-                    panic!(
-                        "nat__big::N::from_bytes: cannot parse empty byteslice as Zarith natural"
-                    );
-                }
-
-                for (ix, &byte) in bytes.iter().enumerate() {
-                    let val = byte & 0x7fu8;
-                    n |= BigUint::from(val) << bits;
-                    bits += 7;
-                    if byte == 0 && ix > 0 {
-                        panic!("Unexpected trailing zero byte in Zarith natural byteslice");
-                    }
-                }
-
-                Self(n)
-            }
-            */
-
             fn to_bytes(&self) -> Vec<u8> {
-                let n_bytes: u64 = self.0.bits().div_ceil(7);
-                let mut ret: Vec<u8> = Vec::with_capacity(n_bytes as usize);
-                let mut nn: BigUint = self.0.clone();
+                let mut ret = self.0.to_radix_le(0x80);
+                let final_ix: usize = ret.len() - 1;
 
-                const MASK: u8 = 0x7fu8;
-                let mut is_last: bool = false;
+                // we unwrap the loop logic of setting the high bit of every byte
+                // but the last, by pre-setting the high bit of the last byte and
+                // toggling it over every byte in the buffer
+                unsafe {
+                    let lastbyt = ret.get_unchecked_mut(final_ix);
+                    *lastbyt ^= 0x80;
+                }
 
-                while !is_last {
-                    let mut byte: u8 = nn.to_bytes_le()[0] & MASK;
-                    nn >>= 7;
-                    is_last = nn == BigUint::from(0u8);
-                    if !is_last {
-                        byte |= 0x80u8;
-                    }
-                    ret.push(byte);
+                for byt in ret.iter_mut() {
+                    *byt ^= 0x80
                 }
 
                 ret
@@ -131,11 +124,11 @@ pub mod n {
         }
     }
 
-    pub(crate) mod nat_rug {
+    pub mod nat_rug {
         use crate::zarith::Zarith;
         use rug::ops::DivRounding;
         use rug::Integer;
-        use std::convert::TryFrom;
+        use std::convert::{TryFrom, TryInto};
         use std::fmt::{Debug, Display};
         use std::ops::Deref;
 
@@ -157,7 +150,7 @@ pub mod n {
         }
 
         #[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
-        pub(crate) struct N(pub Integer);
+        pub struct N(pub Integer);
 
         impl Display for N {
             fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
@@ -176,6 +169,28 @@ pub mod n {
                 }
             }
         }
+
+        macro_rules! impl_nat_coerce {
+            ($src:ty) => {
+                impl From<$src> for N {
+                    fn from(i: $src) -> Self {
+                        Self(Integer::from(i))
+                    }
+                }
+
+                impl TryInto<$src> for N {
+                    type Error = <Integer as TryInto<$src>>::Error;
+                    fn try_into(self) -> Result<$src, Self::Error> {
+                        self.0.try_into()
+                    }
+                }
+            };
+        }
+
+        impl_nat_coerce!(u8);
+        impl_nat_coerce!(u16);
+        impl_nat_coerce!(u32);
+        impl_nat_coerce!(u64);
 
         impl Into<Integer> for N {
             fn into(self) -> Integer {
@@ -277,18 +292,15 @@ pub mod n {
 }
 
 pub mod z {
-    pub(crate) mod int_big {
+    pub mod int_big {
         use crate::zarith::Zarith;
         use rug::ops::DivRounding;
-        use std::{
-            fmt::Display,
-            ops::{Add, Deref},
-        };
+        use std::{convert::TryInto, fmt::Display, ops::{Add, BitAnd, Deref}};
 
         use num_bigint::{BigInt, BigUint, Sign};
 
         #[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
-        pub(crate) struct Z(pub BigInt);
+        pub struct Z(pub BigInt);
 
         impl Display for Z {
             fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
@@ -296,9 +308,12 @@ pub mod z {
             }
         }
 
-        impl From<BigInt> for Z {
-            fn from(i: BigInt) -> Self {
-                Self(i)
+        impl<T> From<T> for Z
+        where
+            BigInt: From<T>,
+        {
+            fn from(i: T) -> Self {
+                Self(BigInt::from(i))
             }
         }
 
@@ -307,6 +322,26 @@ pub mod z {
                 self.0
             }
         }
+
+        macro_rules! impl_int_coerce {
+            ($src:ty) => {
+                impl TryInto<$src> for Z {
+                    type Error = <BigInt as TryInto<$src>>::Error;
+                    fn try_into(self) -> Result<$src, Self::Error> {
+                        self.0.try_into()
+                    }
+                }
+            };
+        }
+        impl_int_coerce!(i8);
+        impl_int_coerce!(i16);
+        impl_int_coerce!(i32);
+        impl_int_coerce!(i64);
+
+        impl_int_coerce!(u8);
+        impl_int_coerce!(u16);
+        impl_int_coerce!(u32);
+        impl_int_coerce!(u64);
 
         impl Deref for Z {
             type Target = BigInt;
@@ -331,11 +366,11 @@ pub mod z {
 
                 let lo7: Vec<u8> = b_iter.map(|&b| b & 0x7f).collect();
 
-                match BigInt::from_radix_le(sg, &lo7, 0x80) {
+                match BigUint::from_radix_le(&lo7, 0x80) {
                     Some(mut i) => {
                         i <<= 6;
-                        i += BigInt::from(bot6);
-                        Self(i)
+                        i += BigUint::from(bot6);
+                        Self(BigInt::from_biguint(sg, i))
                     }
                     None => panic!("from_bytes: conversion failed!"),
                 }
@@ -366,33 +401,27 @@ pub mod z {
             */
 
             fn to_bytes(&self) -> Vec<u8> {
-                let n_bytes: u64 = self.0.bits().saturating_sub(6).div_ceil(7).add(1);
-                let mut ret: Vec<u8> = Vec::with_capacity(n_bytes as usize);
-                let (sgn, mut nn) = self.0.clone().into_parts();
+                let (sg, mut abs) = self.0.clone().into_parts();
 
-                const MASK: u8 = 0x7fu8;
+                let bot6 = abs.modpow(&BigUint::from(1u8), &BigUint::from(0x40u8));
+                abs >>= 6;
+                abs <<= 7;
 
-                let sign_mask = match sgn {
-                    Sign::Minus => 0x40u8,
-                    _ => 0x0u8,
-                };
+                abs |= match sg { Sign::Minus => bot6 | BigUint::from(0x40u8), _ => bot6 };
 
-                let mut byte: u8 = (nn.to_bytes_le()[0] & 0x3fu8) | sign_mask;
-                nn >>= 6;
-                let mut is_last: bool = nn == BigUint::from(0u32);
-                if !is_last {
-                    byte |= 0x80u8;
+                let mut ret = abs.to_radix_le(0x80);
+                let final_ix: usize = ret.len() - 1;
+
+                // we unwrap the loop logic of setting the high bit of every byte
+                // but the last, by pre-setting the high bit of the last byte and
+                // toggling it over every byte in the buffer
+                unsafe {
+                    let lastbyt = ret.get_unchecked_mut(final_ix);
+                    *lastbyt ^= 0x80;
                 }
-                ret.push(byte);
 
-                while !is_last {
-                    let mut byte: u8 = nn.to_bytes_le()[0] & MASK;
-                    nn >>= 7;
-                    is_last = nn == BigUint::from(0u8);
-                    if !is_last {
-                        byte |= 0x80u8;
-                    }
-                    ret.push(byte);
+                for byt in ret.iter_mut() {
+                    *byt ^= 0x80
                 }
 
                 ret
@@ -401,30 +430,32 @@ pub mod z {
 
         #[cfg(test)]
         mod test {
-            use crate::{Decode, hex, HexString};
+            use crate::{hex, Decode, HexString};
 
             use super::*;
 
             static INT: fn(i32) -> Z = |i: i32| Z(<i32 as Into<BigInt>>::into(i));
 
             #[test]
-            fn nat_conv() {
+            fn int_conv() {
                 assert_eq!(INT(0), Z::decode(hex!("00")));
                 assert_eq!(INT(1), Z::decode(hex!("01")));
                 assert_eq!(INT(64), Z::decode(hex!("8001")));
+                assert_eq!(INT(-32), Z::decode(hex!("60")));
             }
         }
     }
 
-    pub(crate) mod int_rug {
+    pub mod int_rug {
         use crate::zarith::Zarith;
         use rug::ops::DivRounding;
         use rug::Integer;
+        use std::convert::TryInto;
         use std::fmt::{Debug, Display};
         use std::ops::{Add, Deref};
 
         #[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
-        pub(crate) struct Z(pub Integer);
+        pub struct Z(pub Integer);
 
         impl Display for Z {
             fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
@@ -451,6 +482,32 @@ pub mod z {
                 &self.0
             }
         }
+
+        macro_rules! impl_nat_coerce {
+            ($src:ty) => {
+                impl From<$src> for Z {
+                    fn from(i: $src) -> Self {
+                        Self(Integer::from(i))
+                    }
+                }
+
+                impl TryInto<$src> for Z {
+                    type Error = <Integer as TryInto<$src>>::Error;
+                    fn try_into(self) -> Result<$src, Self::Error> {
+                        self.0.try_into()
+                    }
+                }
+            };
+        }
+
+        impl_nat_coerce!(u8);
+        impl_nat_coerce!(i8);
+        impl_nat_coerce!(u16);
+        impl_nat_coerce!(i16);
+        impl_nat_coerce!(u32);
+        impl_nat_coerce!(i32);
+        impl_nat_coerce!(u64);
+        impl_nat_coerce!(i64);
 
         impl Zarith for Z {
             /*
@@ -557,7 +614,7 @@ pub mod z {
             static INT: fn(u32) -> Z = |i: u32| Z(<u32 as Into<Integer>>::into(i));
 
             #[test]
-            fn nat_conv() {
+            fn int_conv() {
                 assert_eq!(INT(0), Z::decode(hex!("00")));
                 assert_eq!(INT(1), Z::decode(hex!("01")));
                 assert_eq!(INT(64), Z::decode(hex!("8001")));

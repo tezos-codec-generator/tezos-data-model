@@ -20,4 +20,4 @@ pub use crate::parse::{
 pub use crate::fixed::{bytestring::ByteString, charstring::CharString};
 pub use crate::builder::{Builder, owned::OwnedBuilder};
 pub use crate::schema::{Bytes, Sequence};
-pub use crate::zarith::{Zarith};
+pub use crate::zarith::{Zarith, n::nat_big::N, z::int_big::Z};

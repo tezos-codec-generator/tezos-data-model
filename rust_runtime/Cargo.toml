@@ -20,3 +20,10 @@ version = "0.3"
 version = "1.13"
 default-features = false
 features = ["integer"]
+
+[dev-dependencies]
+criterion = "0.3"
+
+[[bench]]
+name = "zarith_bench"
+harness = false
