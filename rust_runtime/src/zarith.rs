@@ -26,7 +26,6 @@ impl<I: Zarith> Decode for I {
 
 pub mod n {
     pub mod nat_big {
-        use rug::ops::DivRounding;
         use std::{convert::TryInto, fmt::Display, ops::Deref};
 
         use num_bigint::BigUint;
@@ -126,7 +125,10 @@ pub mod n {
 
     pub mod nat_rug {
         use crate::zarith::Zarith;
-        use rug::ops::DivRounding;
+        use bitvec::order::Lsb0;
+        use bitvec::prelude::BitVec;
+        use bitvec::slice::BitSlice;
+        use bitvec::view::BitView;
         use rug::Integer;
         use std::convert::{TryFrom, TryInto};
         use std::fmt::{Debug, Display};
@@ -207,85 +209,76 @@ pub mod n {
         }
 
         impl Zarith for N {
-            /*
-            use bitvec::prelude::BitVec;
-            use bitvec::slice::BitSlice;
-            use bitvec::store::BitStore;
-            use bitvec::view::BitView;
-
-                pub fn from_bytes_direct(bytes: &[u8]) -> Self {
-                    let mut bits : BitVec = BitVec::new();
-                    let mut is_last = false;
-                    let mut byte_iter = bytes.iter();
-
-                    while !is_last {
-                        if let Some(&byt) = byte_iter.next() {
-                            let &bb  = byt.view_bits();
-                            let (&val, &msb) = bb.split_at(7);
-                            is_last = msb[0] == 0;
-                            bits.extend_from_bitslice(val);
-                        }
-                    }
-                }
-                */
-
             fn from_bytes(bytes: &[u8]) -> Self {
-                let mut n: Integer = Integer::with_capacity(bytes.len() * 7);
-                let mut bits: u32 = 0;
+                let mut bits: BitVec<Lsb0, u8> = BitVec::with_capacity(bytes.len() * 7);
 
-                if bytes.len() == 0 {
-                    panic!(
-                        "nat__rug::N::from_bytes: cannot parse empty byteslice as Zarith natural"
-                    );
+                // we assume implicitly that the input is terminated properly
+                for &byte in bytes {
+                    bits.extend_from_bitslice(&byte.view_bits::<Lsb0>()[0..7]);
                 }
 
-                for (ix, &byte) in bytes.iter().enumerate() {
-                    let val = byte & 0x7fu8;
-                    n |= Integer::from(val) << bits;
-                    bits += 7;
-                    if byte == 0 && ix > 0 {
-                        panic!("Unexpected trailing zero byte in Zarith natural byteslice");
-                    }
-                }
-
-                Self(n)
+                Self(Integer::from_digits(
+                    &bits.into_vec(),
+                    rug::integer::Order::Lsf,
+                ))
             }
 
             fn to_bytes(&self) -> Vec<u8> {
-                let n_bytes: u32 = self.0.significant_bits().div_ceil(7);
-                let mut ret: Vec<u8> = Vec::with_capacity(n_bytes as usize);
-                let mut nn: Integer = self.0.clone();
+                let n_bits: u32 = self.0.significant_bits();
 
-                const MASK: u8 = 0x7fu8;
-                let mut is_last: bool = false;
-
-                while !is_last {
-                    let mut byte: u8 = nn.to_u8_wrapping() & MASK;
-                    nn >>= 7;
-                    is_last = nn == 0;
-                    if !is_last {
-                        byte |= 0x80u8;
-                    }
-                    ret.push(byte);
+                if n_bits == 0 {
+                    return vec![0u8];
                 }
 
-                ret
+                let n_alloc: u32 = n_bits * 8 / 7;
+
+                let mut bits: BitVec<Lsb0, u8> = BitVec::with_capacity(n_alloc as usize);
+
+                let limbs: &[u64] = self.0.as_limbs();
+                let limbits =
+                    BitSlice::<Lsb0, u64>::from_slice(limbs).expect("limbs into bits failure");
+
+                let (limbytes, _): (&BitSlice<Lsb0, u8>, &_) = unsafe {
+                    let (_, temp, _) = limbits.align_to();
+                    temp.split_at(n_bits as usize)
+                };
+
+                let mut lo7s = limbytes.chunks_exact(7);
+
+                while let Some(lo7) = lo7s.next() {
+                    bits.extend_from_bitslice(lo7);
+                    bits.push(true);
+                }
+
+                let last = lo7s.remainder();
+                if last.is_empty() {
+                    *bits.last_mut().unwrap() = false;
+                } else {
+                    bits.extend_from_bitslice(last);
+                }
+
+                bits.into_vec()
             }
         }
 
         #[cfg(test)]
         mod test {
-            use crate::{hex, Decode, HexString};
+            use crate::{hex, Decode, Encode, HexString};
 
             use super::*;
 
             static NAT: fn(u32) -> N = |i: u32| N(<u32 as Into<Integer>>::into(i));
 
+            fn roundtrip(preimage: u32, image: &'static str) {
+                assert_eq!(NAT(preimage), N::decode(hex!(image)));
+                assert_eq!(hex!(image), N::encode::<HexString>(&NAT(preimage)));
+            }
+
             #[test]
             fn nat_conv() {
-                assert_eq!(NAT(0), N::decode(hex!("00")));
-                assert_eq!(NAT(1), N::decode(hex!("01")));
-                assert_eq!(NAT(128), N::decode(hex!("8001")));
+                roundtrip(0, "00");
+                roundtrip(1, "01");
+                roundtrip(128, "8001");
             }
         }
     }
@@ -294,8 +287,7 @@ pub mod n {
 pub mod z {
     pub mod int_big {
         use crate::zarith::Zarith;
-        use rug::ops::DivRounding;
-        use std::{convert::TryInto, fmt::Display, ops::{Add, BitAnd, Deref}};
+        use std::{convert::TryInto, fmt::Display, ops::Deref};
 
         use num_bigint::{BigInt, BigUint, Sign};
 
@@ -369,7 +361,7 @@ pub mod z {
                 match BigUint::from_radix_le(&lo7, 0x80) {
                     Some(mut i) => {
                         i <<= 6;
-                        i += BigUint::from(bot6);
+                        i |= BigUint::from(bot6);
                         Self(BigInt::from_biguint(sg, i))
                     }
                     None => panic!("from_bytes: conversion failed!"),
@@ -407,7 +399,10 @@ pub mod z {
                 abs >>= 6;
                 abs <<= 7;
 
-                abs |= match sg { Sign::Minus => bot6 | BigUint::from(0x40u8), _ => bot6 };
+                abs |= match sg {
+                    Sign::Minus => bot6 | BigUint::from(0x40u8),
+                    _ => bot6,
+                };
 
                 let mut ret = abs.to_radix_le(0x80);
                 let final_ix: usize = ret.len() - 1;
