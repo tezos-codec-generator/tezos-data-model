@@ -1,28 +1,26 @@
-use crate::conv::{
-    len,
-    Decode, Encode,
-};
+use crate::conv::{len, Decode, Encode};
 use crate::parse::byteparser::Parser;
 use std::ops::DerefMut;
 use std::{self, ops::Deref};
 
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Bytes(Vec<u8>);
+
+impl len::ScalarLength for Bytes {
+    type Elem = u8;
+
+    const PER_ELEM: usize = 1;
+
+    fn n_elems(&self) -> usize {
+        self.0.len()
+    }
+}
 
 impl Deref for Bytes {
     type Target = Vec<u8>;
 
     fn deref(&self) -> &Self::Target {
         &self.0
-    }
-}
-
-impl len::ScalarLength for Bytes {
-    type Elem = u8;
-
-    const PER_ELEM : usize = 1;
-
-    fn n_elems(&self) -> usize {
-        self.0.len()
     }
 }
 
@@ -60,6 +58,7 @@ impl Decode for Bytes {
     }
 }
 
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Sequence<T>(Vec<T>);
 
 impl<T> Into<Vec<T>> for Sequence<T> {
@@ -82,18 +81,17 @@ impl<T> Deref for Sequence<T> {
     }
 }
 
+impl<T> DerefMut for Sequence<T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
 impl<T: len::Estimable> len::Estimable for Sequence<T> {
     const KNOWN: Option<usize> = None;
 
     fn unknown(&self) -> usize {
         self.0.iter().map(len::Estimable::len).sum()
-    }
-}
-
-
-impl<T> DerefMut for Sequence<T> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
     }
 }
 

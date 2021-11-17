@@ -1,13 +1,23 @@
 use crate::{Parser, conv::{Decode, Encode, EncodeLength}, u30};
-use std::{
-    convert::{TryFrom, TryInto},
-    marker::PhantomData,
-};
+use std::{convert::{TryFrom, TryInto}, fmt::{Debug, Display}, marker::PhantomData};
 
 pub struct Dynamic<S, T> {
     contents: T,
     _phantom: std::marker::PhantomData<S>,
 }
+
+impl<S, T: Debug + crate::conv::len::Estimable> Debug for Dynamic<S, T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "[{} bytes|{:?}]", self.contents.len(), self.contents)
+    }
+}
+
+impl<S, T: Display> Display for Dynamic<S, T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        Display::fmt(&self.contents, f)
+    }
+}
+
 
 pub trait LenPref
 where
