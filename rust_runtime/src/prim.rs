@@ -1,10 +1,8 @@
 use crate::conv::{Decode, Encode};
-use crate::{builder, Parser};
+use crate::{Parser};
 
 impl Encode for () {
-    fn encode<U: builder::Builder>(&self) -> U {
-        U::words([])
-    }
+    fn write(&self, _: &mut Vec<u8>) {}
 }
 
 impl Decode for () {
@@ -14,10 +12,10 @@ impl Decode for () {
 }
 
 impl Encode for bool {
-    fn encode<U: builder::Builder>(&self) -> U {
+    fn write(&self, buf: &mut Vec<u8>) {
         match self {
-            &true => U::word(0xff),
-            &false => U::word(0x00),
+            &true => buf.push(0xff),
+            &false => buf.push(0x00),
         }
     }
 }

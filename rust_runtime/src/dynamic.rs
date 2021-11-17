@@ -1,4 +1,4 @@
-use crate::{Builder, Parser, conv::{Decode, Encode}, u30};
+use crate::{Parser, conv::{Decode, Encode, EncodeLength}, u30};
 use std::{
     convert::{TryFrom, TryInto},
     marker::PhantomData,
@@ -11,7 +11,7 @@ pub struct Dynamic<S, T> {
 
 pub trait LenPref
 where
-    Self: Into<usize> + TryFrom<usize> + Copy + Encode + Decode,
+    Self: Into<usize> + TryFrom<usize> + Copy + EncodeLength + Decode,
 {
 }
 
@@ -19,15 +19,13 @@ impl LenPref for u8 {}
 impl LenPref for u16 {}
 impl LenPref for u30 {}
 
-
-
-impl<S: LenPref, T: Encode> Encode for Dynamic<S, T> {
-    fn encode<U: Builder>(&self) -> U {
-        let payload = Encode::encode::<U>(&self.contents);
-        let l = payload.len();
-
+impl<S: LenPref, T: EncodeLength> Encode for Dynamic<S, T> {
+    fn write(&self, buf: &mut Vec<u8>) {
+        let l : usize = self.contents.enc_len();
         if let Ok(lp) = l.try_into() {
-            S::encode::<U>(&lp) + payload
+            buf.reserve(l + <S as EncodeLength>::enc_len(&lp));
+            lp.write(buf);
+            self.contents.write(buf);
         } else {
             panic!(
                 "Dynamic<{}, _>: Length prefix {} exceeds bounds of associated type",

@@ -2,22 +2,22 @@ extern crate bitvec;
 extern crate num_bigint;
 extern crate rug;
 
-use crate::{Builder, Decode, Encode, Parser};
+use crate::{Decode, Encode, Parser};
 
 pub trait Zarith {
-    fn from_bytes(bytes: &[u8]) -> Self;
-    fn to_bytes(&self) -> Vec<u8>;
+    fn deserialize(bytes: &[u8]) -> Self;
+    fn serialize(&self) -> Vec<u8>;
 }
 
 impl<I: Zarith> Encode for I {
-    fn encode<U: Builder>(&self) -> U {
-        U::from_iter(self.to_bytes().into_iter())
+    fn write(&self, buf: &mut Vec<u8>) {
+        buf.append(&mut self.serialize())
     }
 }
 
 impl<I: Zarith> Decode for I {
     fn parse<P: Parser>(p: &mut P) -> Self {
-        I::from_bytes(
+        I::deserialize(
             &p.get_self_terminating(|byte| byte & 0x80 == 0)
                 .expect("<impl Zarith as Decode>::parse: error encountered"),
         )
@@ -79,7 +79,7 @@ pub mod n {
         }
 
         impl crate::zarith::Zarith for N {
-            fn from_bytes(bytes: &[u8]) -> Self {
+            fn deserialize(bytes: &[u8]) -> Self {
                 let lo7: Vec<u8> = bytes.iter().map(|&b| b & 0x7f).collect();
                 match BigUint::from_radix_le(&lo7, 0x80) {
                     Some(nat) => Self(nat),
@@ -87,7 +87,7 @@ pub mod n {
                 }
             }
 
-            fn to_bytes(&self) -> Vec<u8> {
+            fn serialize(&self) -> Vec<u8> {
                 let mut ret = self.0.to_radix_le(0x80);
                 let final_ix: usize = ret.len() - 1;
 
@@ -116,9 +116,9 @@ pub mod n {
 
             #[test]
             fn nat_conv() {
-                assert_eq!(NAT(0), N::from_bytes(&[0x00u8]));
-                assert_eq!(NAT(1), N::from_bytes(&[0x01u8]));
-                assert_eq!(NAT(128), N::from_bytes(&[0x80, 0x01]));
+                assert_eq!(NAT(0), N::deserialize(&[0x00u8]));
+                assert_eq!(NAT(1), N::deserialize(&[0x01u8]));
+                assert_eq!(NAT(128), N::deserialize(&[0x80, 0x01]));
             }
         }
     }
@@ -209,7 +209,7 @@ pub mod n {
         }
 
         impl Zarith for N {
-            fn from_bytes(bytes: &[u8]) -> Self {
+            fn deserialize(bytes: &[u8]) -> Self {
                 let mut bits: BitVec<Lsb0, u8> = BitVec::with_capacity(bytes.len() * 7);
 
                 // we assume implicitly that the input is terminated properly
@@ -223,7 +223,7 @@ pub mod n {
                 ))
             }
 
-            fn to_bytes(&self) -> Vec<u8> {
+            fn serialize(&self) -> Vec<u8> {
                 let n_bits: u32 = self.0.significant_bits();
 
                 if n_bits == 0 {
@@ -344,7 +344,7 @@ pub mod z {
         }
 
         impl Zarith for Z {
-            fn from_bytes(bytes: &[u8]) -> Self {
+            fn deserialize(bytes: &[u8]) -> Self {
                 let mut b_iter = bytes.iter();
 
                 let &first = b_iter.next().unwrap();
@@ -392,7 +392,7 @@ pub mod z {
             }
             */
 
-            fn to_bytes(&self) -> Vec<u8> {
+            fn serialize(&self) -> Vec<u8> {
                 let (sg, mut abs) = self.0.clone().into_parts();
 
                 let bot6 = abs.modpow(&BigUint::from(1u8), &BigUint::from(0x40u8));
@@ -527,7 +527,7 @@ pub mod z {
                 }
                 */
 
-            fn from_bytes(bytes: &[u8]) -> Self {
+            fn deserialize(bytes: &[u8]) -> Self {
                 let mut n: Integer =
                     Integer::with_capacity((bytes.len().saturating_sub(6)) * 7 + 1);
                 let mut bits: u32 = 0;
@@ -563,7 +563,7 @@ pub mod z {
                 }
             }
 
-            fn to_bytes(&self) -> Vec<u8> {
+            fn serialize(&self) -> Vec<u8> {
                 let n_bytes: u32 = self
                     .0
                     .significant_bits()

@@ -1,4 +1,4 @@
-use crate::builder::{self, Builder};
+use crate::conv::len::FixedLength;
 use crate::conv::{Decode, Encode};
 use crate::Parser;
 use std::convert::{TryFrom, TryInto};
@@ -78,6 +78,10 @@ where
     fn into(self) -> i32 {
         self.val.into()
     }
+}
+
+impl FixedLength for u30 {
+    const LEN: usize = 4;
 }
 
 impl Into<usize> for u30
@@ -180,8 +184,8 @@ pub type i31 = RangedInt<i32, -0x4000_0000i32, 0x3fff_ffffi32>;
 macro_rules! impl_encode_words {
     ($a:ty) => {
         impl Encode for $a {
-            fn encode<U: builder::Builder>(&self) -> U {
-                U::words(self.to_be_bytes())
+            fn write(&self, buf: &mut Vec<u8>) {
+                buf.extend(self.to_be_bytes());
             }
         }
     };
@@ -249,7 +253,7 @@ where
     I: Eq + Ord + Debug + Display + Copy + Encode + Into<i64> + TryFrom<i64>,
     <I as TryFrom<i64>>::Error: std::fmt::Debug,
 {
-    fn encode<U: Builder>(&self) -> U {
+    fn write(&self, buf: &mut Vec<u8>) {
         let enc_val: I = if MIN > 0 {
             let val: i64 = (*self).val.into();
             let min: i64 = MIN.into();
@@ -257,7 +261,7 @@ where
         } else {
             (*self).val
         };
-        enc_val.encode()
+        enc_val.write(buf)
     }
 }
 
@@ -288,7 +292,7 @@ where
 
 #[cfg(test)]
 mod tests {
-    use crate::builder::owned::OwnedBuilder;
+    use crate::builder::{Builder, owned::OwnedBuilder};
     use crate::hex;
     use crate::parse::hexstring::HexString;
 

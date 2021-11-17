@@ -1,6 +1,5 @@
 pub mod bytestring {
-    use crate::builder::Builder;
-    use crate::conv::{Decode, Encode};
+    use crate::conv::{Decode, Encode, len};
     use crate::Parser;
 
     #[derive(PartialEq, Eq, PartialOrd, Ord, Debug)]
@@ -12,9 +11,13 @@ pub mod bytestring {
         }
     }
 
+    impl<const N: usize> len::FixedLength for ByteString<N> {
+        const LEN: usize = N;
+    }
+
     impl<const N: usize> Encode for ByteString<N> {
-        fn encode<U: Builder>(&self) -> U {
-            U::words(self.0)
+        fn write(&self, buf: &mut Vec<u8>) {
+            buf.extend(self.0)
         }
     }
 
@@ -28,7 +31,7 @@ pub mod bytestring {
     mod tests {
         use super::*;
         use crate::parse::hexstring::HexString;
-        use crate::{builder::owned::OwnedBuilder, hex};
+        use crate::{builder::{Builder, owned::OwnedBuilder}, hex};
 
         #[test]
         fn bytestring_hex() {
@@ -50,13 +53,16 @@ pub mod bytestring {
 pub mod charstring {
     use std::convert::TryInto;
 
-    use crate::builder::Builder;
-    use crate::conv::{Decode, Encode};
+    use crate::conv::{Decode, Encode, len};
     use crate::parse::byteparser::Parser;
 
     #[derive(PartialEq, Eq, PartialOrd, Ord, Debug)]
     pub struct CharString<const N: usize> {
         contents: [u8; N],
+    }
+
+    impl<const N: usize> len::FixedLength for CharString<N> {
+        const LEN: usize = N;
     }
 
     impl<const N: usize> From<&str> for CharString<N> {
@@ -89,8 +95,8 @@ pub mod charstring {
     }
 
     impl<const N: usize> Encode for CharString<N> {
-        fn encode<U: Builder>(&self) -> U {
-            U::words(self.contents)
+        fn write(&self, buf: &mut Vec<u8>) {
+            buf.extend(self.contents)
         }
     }
 
@@ -101,7 +107,7 @@ pub mod charstring {
     }
     #[cfg(test)]
     mod tests {
-        use crate::builder::owned::OwnedBuilder;
+        use crate::{Builder, builder::owned::OwnedBuilder};
         use std::borrow::Borrow;
 
         use super::*;
