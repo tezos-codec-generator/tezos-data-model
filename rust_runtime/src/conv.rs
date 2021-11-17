@@ -14,6 +14,7 @@ pub mod len {
         };
     }
 
+    fix_length!(0, ());
     fix_length!(1, u8, i8, bool);
     fix_length!(2, u16, i16);
     fix_length!(4, u32, i32);
@@ -28,7 +29,7 @@ pub mod len {
 
         type Elem: FixedLength;
 
-        const PER_ELEM : usize = <Self::Elem as FixedLength>::LEN;
+        const PER_ELEM: usize = <Self::Elem as FixedLength>::LEN;
 
         fn n_elems(&self) -> usize;
     }
@@ -78,10 +79,7 @@ pub mod len {
         }
     }
 
-    impl<T> ScalarLength for Vec<T>
-    where
-        T: FixedLength,
-    {
+    impl<T: FixedLength> ScalarLength for Vec<T> {
         type Elem = T;
 
         fn n_elems(&self) -> usize {
@@ -89,14 +87,12 @@ pub mod len {
         }
     }
 
-    impl ScalarLength for String
-    {
+    impl ScalarLength for String {
         type Elem = u8;
         fn n_elems(&self) -> usize {
             self.len()
         }
     }
-
 }
 
 pub trait Encode {
@@ -124,7 +120,6 @@ impl<T: Encode + len::Estimable> EncodeLength for T {
         self.len()
     }
 }
-
 
 pub trait Decode {
     fn parse<P: Parser>(p: &mut P) -> Self;
