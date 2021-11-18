@@ -11,7 +11,7 @@ mod internal;
 pub mod zarith;
 
 pub use crate::dynamic::Dynamic;
-pub use crate::conv::{Decode, Encode};
+pub use crate::conv::{Decode, Encode, len::{FixedLength, ScalarLength, Estimable}};
 pub use crate::int::{i31, u30};
 pub use crate::parse::{
     byteparser::{ByteParser, ToParser, Parser},

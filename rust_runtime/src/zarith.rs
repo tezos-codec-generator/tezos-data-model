@@ -29,6 +29,7 @@ pub mod n {
         use std::{convert::TryInto, fmt::Display, ops::Deref};
 
         use num_bigint::BigUint;
+        use rug::ops::DivRounding;
 
         #[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
         pub struct N(pub BigUint);
@@ -75,6 +76,15 @@ pub mod n {
 
             fn deref(&self) -> &Self::Target {
                 &self.0
+            }
+        }
+
+        impl crate::conv::len::Estimable for N {
+            const KNOWN: Option<usize> = None;
+
+            fn unknown(&self) -> usize {
+                let n : usize = self.0.bits() as usize;
+                n.div_ceil(7)
             }
         }
 
@@ -130,6 +140,7 @@ pub mod n {
         use bitvec::slice::BitSlice;
         use bitvec::view::BitView;
         use rug::Integer;
+        use rug::ops::DivRounding;
         use std::convert::{TryFrom, TryInto};
         use std::fmt::{Debug, Display};
         use std::ops::Deref;
@@ -205,6 +216,15 @@ pub mod n {
 
             fn deref(&self) -> &Self::Target {
                 &self.0
+            }
+        }
+
+        impl crate::conv::len::Estimable for N {
+            const KNOWN: Option<usize> = None;
+
+            fn unknown(&self) -> usize {
+                let n : usize = self.0.significant_bits() as usize;
+                n.div_ceil(7)
             }
         }
 
@@ -290,6 +310,7 @@ pub mod z {
         use std::{convert::TryInto, fmt::Display, ops::Deref};
 
         use num_bigint::{BigInt, BigUint, Sign};
+        use rug::ops::DivRounding;
 
         #[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
         pub struct Z(pub BigInt);
@@ -340,6 +361,18 @@ pub mod z {
 
             fn deref(&self) -> &Self::Target {
                 &self.0
+            }
+        }
+
+        impl crate::conv::len::Estimable for Z {
+            const KNOWN: Option<usize> = None;
+
+            fn unknown(&self) -> usize {
+                let n : usize = self.0.bits() as usize;
+                match n {
+                    0..=6 => 1,
+                    n => 1 + (n - 6).div_ceil(7)
+                }
             }
         }
 
@@ -503,6 +536,18 @@ pub mod z {
         impl_nat_coerce!(i32);
         impl_nat_coerce!(u64);
         impl_nat_coerce!(i64);
+
+        impl crate::conv::len::Estimable for Z {
+            const KNOWN: Option<usize> = None;
+
+            fn unknown(&self) -> usize {
+                let n : usize = self.0.significant_bits() as usize;
+                match n {
+                    0..=6 => 1,
+                    n => 1 + (n - 6).div_ceil(7)
+                }
+            }
+        }
 
         impl Zarith for Z {
             /*

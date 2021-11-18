@@ -1,9 +1,25 @@
-use crate::{Parser, conv::{Decode, Encode, EncodeLength}, u30};
+use crate::{Estimable, FixedLength, Parser, conv::{Decode, Encode, EncodeLength}, u30};
 use std::{convert::{TryFrom, TryInto}, fmt::{Debug, Display}, marker::PhantomData};
 
 pub struct Dynamic<S, T> {
     contents: T,
     _phantom: std::marker::PhantomData<S>,
+}
+
+impl<S: FixedLength, T: Estimable> Estimable for Dynamic<S, T> {
+    const KNOWN: Option<usize> = {
+        const fn f(x: Option<usize>, y: Option<usize>) -> Option<usize> {
+            match (x, y) {
+                (Some(m), Some(n)) => Some(m+n),
+                _ => None,
+            }
+        }
+        f(S::KNOWN, T::KNOWN)
+    };
+
+    fn unknown(&self) -> usize {
+        <S as FixedLength>::LEN + self.contents.len()
+    }
 }
 
 impl<S, T: Debug + crate::conv::len::Estimable> Debug for Dynamic<S, T> {

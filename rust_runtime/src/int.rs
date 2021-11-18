@@ -80,12 +80,7 @@ where
     }
 }
 
-impl FixedLength for u30 {
-    const LEN: usize = 4;
-}
-
-impl Into<usize> for u30
-{
+impl Into<usize> for u30 {
     fn into(self) -> usize {
         self.val as usize
     }
@@ -106,14 +101,16 @@ where
     }
 }
 
-impl TryFrom<usize> for u30
-{
+impl TryFrom<usize> for u30 {
     type Error = OutOfRange;
 
     fn try_from(x: usize) -> Result<Self, Self::Error> {
         match u32::try_from(x) {
             Ok(val) => OutOfRange::restrict(val, 0u32, 0x3fff_ffffu32).map(|val| Self { val }),
-            Err(_) => Err(OutOfRange::Overflow { max: 0x3fff_ffffi64, val: x as i64 }),
+            Err(_) => Err(OutOfRange::Overflow {
+                max: 0x3fff_ffffi64,
+                val: x as i64,
+            }),
         }
     }
 }
@@ -159,7 +156,7 @@ where
     pub fn new(val: I) -> Self {
         Self::precheck();
 
-        let val64 : i64 = val.into();
+        let val64: i64 = val.into();
 
         if val64 >= (MIN as i64) && val64 <= (MAX as i64) {
             Self { val }
@@ -265,6 +262,12 @@ where
     }
 }
 
+impl<I: Integral + FixedLength, const MIN: i32, const MAX: i32> FixedLength
+    for RangedInt<I, MIN, MAX>
+{
+    const LEN: usize = I::LEN;
+}
+
 impl<I, const MIN: i32, const MAX: i32> Decode for RangedInt<I, MIN, MAX>
 where
     I: Integral + Decode,
@@ -292,7 +295,7 @@ where
 
 #[cfg(test)]
 mod tests {
-    use crate::builder::{Builder, owned::OwnedBuilder};
+    use crate::builder::{owned::OwnedBuilder, Builder};
     use crate::hex;
     use crate::parse::hexstring::HexString;
 
