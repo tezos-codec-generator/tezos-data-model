@@ -168,6 +168,8 @@ pub mod hexstring {
     }
 
     impl Builder for HexString {
+        type Final = Self;
+
         fn word(b: u8) -> Self {
             Self { words: vec![b] }
         }
@@ -175,6 +177,8 @@ pub mod hexstring {
         fn words<const N: usize>(b: [u8; N]) -> Self {
             Self { words: b.to_vec() }
         }
+
+        fn finalize(self) -> Self { self }
 
         fn into_vec(self) -> Vec<u8> {
             self.words

@@ -306,7 +306,7 @@ mod tests {
         U: Encode + Decode + std::cmp::PartialEq + std::fmt::Debug,
     {
         for (u, enc) in table.iter() {
-            assert_eq!(enc.to_owned(), u.encode::<OwnedBuilder>().show_hex());
+            assert_eq!(enc.to_owned(), u.encode::<OwnedBuilder>().into_hex());
             assert_eq!(U::decode(hex!(*enc)), *u);
         }
     }

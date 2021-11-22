@@ -13,7 +13,7 @@ pub trait Encode {
     }
 
     fn encode<U: Builder>(&self) -> U {
-        self.to_bytes().into_iter().collect()
+        self.to_bytes().into()
     }
 }
 

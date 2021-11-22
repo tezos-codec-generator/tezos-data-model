@@ -38,14 +38,14 @@ pub mod bytestring {
             let hex = hex!("deadbeef");
             let b = ByteString::<4>::decode(hex);
             assert_eq!(b, ByteString([0xde, 0xad, 0xbe, 0xef]));
-            assert_eq!(b.encode::<OwnedBuilder>().show_hex(), "deadbeef");
+            assert_eq!(b.encode::<OwnedBuilder>().into_hex(), "deadbeef");
         }
 
         #[test]
         fn bytestring_ascii() {
             let b = ByteString::<12>::decode(b"hello world!");
             assert_eq!(b, ByteString::from(b"hello world!"));
-            assert_eq!(b.encode::<OwnedBuilder>().show().unwrap(), "hello world!");
+            assert_eq!(b.encode::<OwnedBuilder>().into_bin().unwrap(), "hello world!");
         }
     }
 }
@@ -115,7 +115,7 @@ pub mod charstring {
         fn check_str<const N: usize>(case: &'static str) {
             let res = CharString::<N>::decode(case);
             assert_eq!(res, CharString::from(case));
-            assert_eq!(res.encode::<OwnedBuilder>().show().unwrap(), case);
+            assert_eq!(res.encode::<OwnedBuilder>().into_bin().unwrap(), case);
         }
 
         fn check_arr<const N: usize>(case: &[u8; N]) {
