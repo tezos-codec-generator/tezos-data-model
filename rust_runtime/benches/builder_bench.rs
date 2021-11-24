@@ -1,7 +1,7 @@
-use criterion::{Criterion, criterion_group, criterion_main};
+use criterion::{criterion_group, criterion_main, Criterion};
 
 use rust_runtime::{
-    conv::{Encode, EncodeLength},
+    conv::{EncodeLength},
     Builder, LazyBuilder, OwnedBuilder,
 };
 
@@ -17,11 +17,13 @@ fn lazy_bench(c: &mut Criterion) {
     fn run() -> Vec<u8> {
         let mut bld = LazyBuilder::empty();
 
-        bld += TEXT[0].lazy_encode::<LazyBuilder>();
-        bld += TEXT[1].lazy_encode::<LazyBuilder>();
-        bld += TEXT[2].lazy_encode::<LazyBuilder>();
-        bld += TEXT[3].lazy_encode::<LazyBuilder>();
-        bld += TEXT[4].lazy_encode::<LazyBuilder>();
+        for _ in 0..100 {
+            bld += TEXT[0].lazy_encode::<LazyBuilder>();
+            bld += TEXT[1].lazy_encode::<LazyBuilder>();
+            bld += TEXT[2].lazy_encode::<LazyBuilder>();
+            bld += TEXT[3].lazy_encode::<LazyBuilder>();
+            bld += TEXT[4].lazy_encode::<LazyBuilder>();
+        }
 
         bld.finalize().into_vec()
     }
@@ -33,11 +35,13 @@ fn owned_bench(c: &mut Criterion) {
     fn run() -> Vec<u8> {
         let mut bld = OwnedBuilder::empty();
 
-        bld += TEXT[0].encode::<OwnedBuilder>();
-        bld += TEXT[1].encode::<OwnedBuilder>();
-        bld += TEXT[2].encode::<OwnedBuilder>();
-        bld += TEXT[3].encode::<OwnedBuilder>();
-        bld += TEXT[4].encode::<OwnedBuilder>();
+        for _ in 0..100 {
+            bld += TEXT[0].lazy_encode::<OwnedBuilder>();
+            bld += TEXT[1].lazy_encode::<OwnedBuilder>();
+            bld += TEXT[2].lazy_encode::<OwnedBuilder>();
+            bld += TEXT[3].lazy_encode::<OwnedBuilder>();
+            bld += TEXT[4].lazy_encode::<OwnedBuilder>();
+        }
 
         bld.finalize().into_vec()
     }
@@ -45,7 +49,7 @@ fn owned_bench(c: &mut Criterion) {
     c.bench_function("owned_accum", |b| b.iter(|| run()));
 }
 
-criterion_group!{
+criterion_group! {
     name = builder_benches;
     config = Criterion::default();
     targets = lazy_bench, owned_bench

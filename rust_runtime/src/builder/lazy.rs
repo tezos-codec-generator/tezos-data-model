@@ -2,7 +2,7 @@ use std::ops::AddAssign;
 use std::{borrow::Borrow, ops::Add};
 
 use std::boxed::Box;
-use std::collections::VecDeque;
+use std::collections::LinkedList;
 
 pub struct LazySegment<'a> {
     len: usize,
@@ -18,7 +18,7 @@ impl<'a> LazySegment<'a> {
     }
 
     fn promote(self) -> LazyBuilder<'a> {
-        let mut segments = VecDeque::new();
+        let mut segments = LinkedList::new();
         segments.push_front(self);
         LazyBuilder::from_segments(segments)
     }
@@ -26,11 +26,11 @@ impl<'a> LazySegment<'a> {
 
 pub struct LazyBuilder<'a> {
     len: usize,
-    segments: VecDeque<LazySegment<'a>>,
+    segments: LinkedList<LazySegment<'a>>,
 }
 
 impl<'a> LazyBuilder<'a> {
-    fn from_segments(segments: VecDeque<LazySegment<'a>>) -> Self {
+    fn from_segments(segments: LinkedList<LazySegment<'a>>) -> Self {
         let len = segments.iter().map(|x| x.len).sum();
         Self { len, segments }
     }
@@ -117,7 +117,7 @@ impl<'a> super::Builder for LazyBuilder<'a> {
 
 impl<'a> LazyBuilder<'a> {
     fn empty() -> Self {
-        Self::from_segments(VecDeque::new())
+        Self::from_segments(LinkedList::new())
     }
 
     pub fn new() -> Self {

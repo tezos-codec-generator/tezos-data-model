@@ -1,5 +1,7 @@
 use std::{borrow::Borrow, iter::FromIterator, ops::{Add, AddAssign}};
 
+use super::TransientBuilder;
+
 pub struct OwnedBuilder {
     buf: Vec<u8>,
 }
@@ -85,6 +87,9 @@ impl super::Builder for OwnedBuilder {
         self.buf.len()
     }
 }
+
+impl TransientBuilder<'_> for OwnedBuilder { }
+
 
 impl OwnedBuilder {
     pub fn empty() -> Self {

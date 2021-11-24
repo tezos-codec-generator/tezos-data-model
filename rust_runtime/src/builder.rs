@@ -44,10 +44,9 @@ where
 
 pub trait TransientBuilder<'a>: Builder {
     /// Construct a Builder object from a closure that writes data to a vector
-    fn delayed(mut f: impl 'a + FnMut(&mut Vec<u8>) -> (), len: usize) -> Self {
+    fn delayed(mut f: impl 'a + FnMut(&mut Vec<u8>) -> (), _len: usize) -> Self {
         let mut raw = Vec::new();
         f(&mut raw);
-        assert_eq!(len, raw.len());
         raw.into()
     }
 }
