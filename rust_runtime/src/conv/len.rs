@@ -79,27 +79,27 @@ impl<T: FixedLength> ScalarLength for Vec<T> {
     type Elem = T;
 
     fn n_elems(&self) -> usize {
-        self.len()
+        Vec::len(&self)
     }
 }
 
 impl ScalarLength for String {
     type Elem = u8;
     fn n_elems(&self) -> usize {
-        self.len()
+        String::len(&self)
     }
 }
 
 impl ScalarLength for str {
     type Elem = u8;
     fn n_elems(&self) -> usize {
-        self.len()
+        str::len(&self)
     }
 }
 
 impl ScalarLength for &str {
     type Elem = u8;
     fn n_elems(&self) -> usize {
-        self.len()
+        str::len(self)
     }
 }

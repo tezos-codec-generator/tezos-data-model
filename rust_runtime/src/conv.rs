@@ -105,3 +105,16 @@ impl<T: Decode> Decode for Option<T> {
         }
     }
 }
+
+
+#[cfg(test)]
+mod test {
+    use crate::{Builder, LazyBuilder};
+
+    use super::EncodeLength;
+
+    #[test]
+    fn check() {
+        assert_eq!("foo".lazy_encode::<LazyBuilder>().finalize().into_bin().unwrap(), "foo");
+    }
+}

@@ -168,14 +168,14 @@ impl<'a, T: 'a + Borrow<[u8]>> Add<T> for LazyBuilder<'a> {
 
 #[cfg(test)]
 mod test {
-    use crate::Builder;
+    use crate::{Builder, builder::TransientBuilder};
 
     use super::*;
 
     #[test]
     fn check() {
         let mut accum = LazyBuilder::empty();
-        accum += LazyBuilder::from(b"hello");
+        accum += LazyBuilder::delayed(|v| v.extend(b"hello"), 5);
         accum += LazyBuilder::from(b" ");
         accum += LazyBuilder::from(b"world");
         accum += LazyBuilder::from(b"!");
