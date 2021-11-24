@@ -458,7 +458,7 @@ pub mod z {
 
         #[cfg(test)]
         mod test {
-            use crate::{hex, Decode, HexString};
+            use crate::{hex, Decode};
 
             use super::*;
 
@@ -647,7 +647,7 @@ pub mod z {
 
         #[cfg(test)]
         mod test {
-            use crate::{hex, Decode, HexString};
+            use crate::{hex, Decode};
 
             use super::*;
 

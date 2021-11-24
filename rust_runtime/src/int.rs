@@ -297,7 +297,6 @@ where
 mod tests {
     use crate::builder::{owned::OwnedBuilder, Builder};
     use crate::hex;
-    use crate::parse::hexstring::HexString;
 
     use super::*;
 

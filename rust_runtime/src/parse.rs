@@ -162,7 +162,7 @@ pub mod hexstring {
     #[macro_export]
     macro_rules! hex {
         ($s : expr) => {
-            <HexString as std::convert::TryFrom<&str>>::try_from($s)
+            <$crate::parse::hexstring::HexString as std::convert::TryFrom<&str>>::try_from($s)
                 .expect("hex! macro encountered error")
         };
     }

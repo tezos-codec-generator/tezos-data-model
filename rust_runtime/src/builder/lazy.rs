@@ -1,3 +1,4 @@
+use std::ops::AddAssign;
 use std::{borrow::Borrow, ops::Add};
 
 use std::boxed::Box;
@@ -41,6 +42,11 @@ impl<'a> From<u8> for LazySegment<'a> {
     }
 }
 
+impl<'a, const N: usize> From<&'a [u8; N]> for LazySegment<'a> {
+    fn from(words: &'a [u8; N]) -> Self {
+        Self::new(move |v: &mut Vec<u8>| v.extend(words), N)
+    }
+}
 impl<'a, const N: usize> From<[u8; N]> for LazySegment<'a> {
     fn from(words: [u8; N]) -> Self {
         Self::new(move |v: &mut Vec<u8>| v.extend(words), N)
@@ -99,6 +105,7 @@ impl<'a> super::Builder for LazyBuilder<'a> {
         super::owned::OwnedBuilder::from(self.into_vec())
     }
 
+
     fn into_vec(self) -> Vec<u8> {
         self.into()
     }
@@ -122,6 +129,13 @@ impl<'a> LazyBuilder<'a> {
     }
 }
 
+impl<'a> super::TransientBuilder<'a> for LazyBuilder<'a> {
+    fn delayed(f: impl 'a + FnMut(&mut Vec<u8>) -> (), len: usize) -> Self {
+        LazySegment::new(f, len).promote()
+    }
+}
+
+
 impl<'a> Add<LazyBuilder<'a>> for LazyBuilder<'a> {
     type Output = Self;
 
@@ -129,6 +143,13 @@ impl<'a> Add<LazyBuilder<'a>> for LazyBuilder<'a> {
         self.len += rhs.len;
         self.segments.append(&mut rhs.segments);
         self
+    }
+}
+
+impl<'a> AddAssign<LazyBuilder<'a>> for LazyBuilder<'a> {
+    fn add_assign(&mut self, mut rhs: LazyBuilder<'a>)  {
+        self.len += rhs.len;
+        self.segments.append(&mut rhs.segments);
     }
 }
 
@@ -143,4 +164,22 @@ impl<'a, T: 'a + Borrow<[u8]>> Add<T> for LazyBuilder<'a> {
 
         <LazyBuilder as Add<LazyBuilder>>::add(self, LazySegment::new(f, len).promote())
     }
+}
+
+#[cfg(test)]
+mod test {
+    use crate::Builder;
+
+    use super::*;
+
+    #[test]
+    fn check() {
+        let mut accum = LazyBuilder::empty();
+        accum += LazyBuilder::from(b"hello");
+        accum += LazyBuilder::from(b" ");
+        accum += LazyBuilder::from(b"world");
+        accum += LazyBuilder::from(b"!");
+        assert_eq!(accum.finalize().into_bin(), Ok(String::from("hello world!")));
+    }
+
 }

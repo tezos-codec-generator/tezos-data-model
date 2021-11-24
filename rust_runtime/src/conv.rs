@@ -1,4 +1,4 @@
-use crate::builder::Builder;
+use crate::builder::{Builder, TransientBuilder};
 use crate::parse::byteparser::{Parser, ToParser};
 
 pub mod len;
@@ -21,9 +21,13 @@ pub trait EncodeLength: Encode {
     fn enc_len(&self) -> usize {
         self.to_bytes().len()
     }
+
+    fn lazy_encode<'a, U: TransientBuilder<'a>>(&'a self) -> U {
+        U::delayed(move |buf| self.write(buf), self.enc_len())
+    }
 }
 
-impl<T: Encode + len::Estimable> EncodeLength for T {
+impl<T: Encode + len::Estimable + ?Sized> EncodeLength for T {
     fn enc_len(&self) -> usize {
         self.len()
     }
@@ -51,6 +55,12 @@ impl Decode for Vec<u8> {
     fn parse<P: Parser>(p: &mut P) -> Self {
         p.get_dynamic(p.len() - p.offset())
             .expect("<Vec<u8> as Decode>::parse: Buffer read error encountered")
+    }
+}
+
+impl Encode for &str {
+    fn write(&self, buf: &mut Vec<u8>) {
+        buf.extend(self.bytes())
     }
 }
 

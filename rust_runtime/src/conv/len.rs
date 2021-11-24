@@ -89,3 +89,17 @@ impl ScalarLength for String {
         self.len()
     }
 }
+
+impl ScalarLength for str {
+    type Elem = u8;
+    fn n_elems(&self) -> usize {
+        self.len()
+    }
+}
+
+impl ScalarLength for &str {
+    type Elem = u8;
+    fn n_elems(&self) -> usize {
+        self.len()
+    }
+}

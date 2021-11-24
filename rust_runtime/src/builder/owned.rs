@@ -1,4 +1,4 @@
-use std::{borrow::Borrow, iter::FromIterator, ops::Add};
+use std::{borrow::Borrow, iter::FromIterator, ops::{Add, AddAssign}};
 
 pub struct OwnedBuilder {
     buf: Vec<u8>,
@@ -119,5 +119,11 @@ impl<T: Borrow<[u8]>> Add<T> for OwnedBuilder {
         let mut buf: Vec<u8> = self.buf;
         buf.extend_from_slice(rhs.borrow());
         Self { buf }
+    }
+}
+
+impl<T: Borrow<[u8]>> AddAssign<T> for OwnedBuilder {
+    fn add_assign(&mut self, rhs: T) {
+        self.buf.extend_from_slice(rhs.borrow())
     }
 }
