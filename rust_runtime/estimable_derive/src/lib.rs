@@ -1,7 +1,7 @@
 extern crate proc_macro;
 
 use proc_macro::TokenStream;
-use quote::quote;
+use quote::{format_ident, quote};
 use syn;
 
 #[proc_macro_derive(Estimable)]
@@ -47,11 +47,18 @@ fn impl_estimable(ast: &syn::DeriveInput) -> TokenStream {
                     }
                     _ => {
                         let i = (0..unnamed.len()).map(syn::Index::from);
+                        let varname : Vec<syn::Ident> = (0..unnamed.len()).map(|x| format_ident!("pos{}", x)).collect();
                         let ty = unnamed.iter().map(|x| &x.ty);
                         quote! {
                             impl Estimable for #name {
                                 const KNOWN : Option<usize> = {
-                                    Some(#( #ty::KNOWN? )+* )
+                                    const fn f( #( #varname : Option<usize> ),* ) -> Option<usize> {
+                                        match ( #( #varname ),* ) {
+                                            ( #( Some(#varname) ),* ) => Some( #(#varname)+* ),
+                                            _ => None,
+                                        }
+                                    }
+                                    f( #( #ty::KNOWN ),* )
                                 };
 
                                 fn unknown(&self) -> usize {
