@@ -14,10 +14,10 @@ const TEXT: [&'static str; 5] = [
 ];
 
 fn lazy_bench(c: &mut Criterion) {
-    fn run() -> Vec<u8> {
+    fn run(n: usize) -> Vec<u8> {
         let mut bld = LazyBuilder::empty();
 
-        for _ in 0..100 {
+        for _ in 0..n {
             bld += TEXT[0].lazy_encode::<LazyBuilder>();
             bld += TEXT[1].lazy_encode::<LazyBuilder>();
             bld += TEXT[2].lazy_encode::<LazyBuilder>();
@@ -28,14 +28,14 @@ fn lazy_bench(c: &mut Criterion) {
         bld.finalize().into_vec()
     }
 
-    c.bench_function("lazy_accum", |b| b.iter(|| run()));
+    c.bench_function("lazy_accum", |b| b.iter(|| run(50)));
 }
 
 fn owned_bench(c: &mut Criterion) {
-    fn run() -> Vec<u8> {
+    fn run(n: usize) -> Vec<u8> {
         let mut bld = OwnedBuilder::empty();
 
-        for _ in 0..100 {
+        for _ in 0..n {
             bld += TEXT[0].lazy_encode::<OwnedBuilder>();
             bld += TEXT[1].lazy_encode::<OwnedBuilder>();
             bld += TEXT[2].lazy_encode::<OwnedBuilder>();
@@ -46,7 +46,7 @@ fn owned_bench(c: &mut Criterion) {
         bld.finalize().into_vec()
     }
 
-    c.bench_function("owned_accum", |b| b.iter(|| run()));
+    c.bench_function("owned_accum", |b| b.iter(|| run(50)));
 }
 
 criterion_group! {

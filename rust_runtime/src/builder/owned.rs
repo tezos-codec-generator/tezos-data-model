@@ -1,4 +1,8 @@
-use std::{borrow::Borrow, iter::FromIterator, ops::{Add, AddAssign}};
+use std::{
+    borrow::Borrow,
+    iter::FromIterator,
+    ops::{Add, AddAssign},
+};
 
 use super::TransientBuilder;
 
@@ -49,7 +53,7 @@ impl Borrow<[u8]> for OwnedBuilder {
 impl FromIterator<u8> for OwnedBuilder {
     fn from_iter<T: IntoIterator<Item = u8>>(iter: T) -> Self {
         Self {
-            buf: iter.into_iter().collect(),
+            buf: Vec::from_iter(iter),
         }
     }
 }
@@ -77,7 +81,9 @@ impl super::Builder for OwnedBuilder {
         b.into()
     }
 
-    fn finalize(self) -> Self { self }
+    fn finalize(self) -> Self {
+        self
+    }
 
     fn into_vec(self) -> Vec<u8> {
         self.buf
@@ -88,8 +94,7 @@ impl super::Builder for OwnedBuilder {
     }
 }
 
-impl TransientBuilder<'_> for OwnedBuilder { }
-
+impl TransientBuilder<'_> for OwnedBuilder {}
 
 impl OwnedBuilder {
     pub fn empty() -> Self {
