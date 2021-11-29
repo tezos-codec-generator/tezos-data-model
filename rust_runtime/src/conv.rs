@@ -22,8 +22,8 @@ pub trait EncodeLength: Encode {
         self.to_bytes().len()
     }
 
-    fn lazy_encode<'a, U: TransientBuilder<'a>>(&'a self) -> U {
-        U::delayed(move |buf| self.write(buf), self.enc_len())
+    fn lazy_encode<'a, U>(&'a self) -> U where U: TransientBuilder<'a> + 'a {
+        U::delayed(move |buf| Encode::write(self, buf), self.enc_len())
     }
 }
 
@@ -106,7 +106,6 @@ impl<T: Decode> Decode for Option<T> {
     }
 }
 
-
 #[cfg(test)]
 mod test {
     use crate::{Builder, LazyBuilder};
@@ -115,6 +114,13 @@ mod test {
 
     #[test]
     fn check() {
-        assert_eq!("foo".lazy_encode::<LazyBuilder>().finalize().into_bin().unwrap(), "foo");
+        assert_eq!(
+            "foo"
+                .lazy_encode::<LazyBuilder>()
+                .finalize()
+                .into_bin()
+                .unwrap(),
+            "foo"
+        );
     }
 }

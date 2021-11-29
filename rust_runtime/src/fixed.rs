@@ -106,7 +106,7 @@ pub mod charstring {
     }
     #[cfg(test)]
     mod tests {
-        use crate::{Builder, builder::owned::OwnedBuilder};
+        use crate::{Builder, StrictBuilder, builder::owned::OwnedBuilder};
         use std::borrow::Borrow;
 
         use super::*;
@@ -121,7 +121,7 @@ pub mod charstring {
             let res = CharString::<N>::decode(case);
             assert_eq!(res, CharString::from(case));
             assert_eq!(
-                <OwnedBuilder as Borrow<[u8]>>::borrow(&res.encode::<OwnedBuilder>()),
+                <StrictBuilder as Borrow<[u8]>>::borrow(&res.encode::<StrictBuilder>()),
                 case
             );
         }

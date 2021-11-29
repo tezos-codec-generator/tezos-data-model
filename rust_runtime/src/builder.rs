@@ -9,9 +9,12 @@ use crate::util::hex_of_bytes;
 /// or a raw minary string
 pub trait Builder
 where
-    Self: std::ops::Add<Self, Output = Self> + Sized + From<Vec<u8>>,
+    Self: std::ops::Add<Self, Output = Self> + std::ops::AddAssign<Self> + Sized + From<Vec<u8>>,
 {
-    type Final: Builder;
+    type Segment;
+    type Final: Into<Vec<u8>>;
+
+    fn promote(seg: Self::Segment) -> Self;
 
     /// Constructor used for instantiating builders that consist of a single 8-bit word
     fn word(b: u8) -> Self;
@@ -20,7 +23,9 @@ where
     fn words<const N: usize>(b: [u8; N]) -> Self;
 
     /// Consume the Builder object and return a vector of its contents
-    fn into_vec(self) -> Vec<u8>;
+    fn into_vec(self) -> Vec<u8> {
+        self.finalize().into()
+    }
 
     /// Return a string consisting of the raw hexadecimal sequence of words in the Builder
     fn into_hex(self) -> String {
@@ -44,7 +49,7 @@ where
 
 pub trait TransientBuilder<'a>: Builder {
     /// Construct a Builder object from a closure that writes data to a vector
-    fn delayed(mut f: impl 'a + FnMut(&mut Vec<u8>) -> (), _len: usize) -> Self {
+    fn delayed(mut f: impl 'a + FnMut(&mut Vec<u8>), _len: usize) -> Self {
         let mut raw = Vec::new();
         f(&mut raw);
         raw.into()
@@ -53,3 +58,4 @@ pub trait TransientBuilder<'a>: Builder {
 
 pub mod lazy;
 pub mod owned;
+pub mod strict;

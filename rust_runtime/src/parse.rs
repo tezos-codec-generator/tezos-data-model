@@ -108,6 +108,12 @@ pub mod hexstring {
         }
     }
 
+    impl std::ops::AddAssign<HexString> for HexString {
+        fn add_assign(&mut self, mut rhs: HexString) {
+            self.words.append(&mut rhs.words)
+        }
+    }
+
     impl Borrow<[u8]> for HexString {
         fn borrow(&self) -> &[u8] {
             self.words.borrow()
@@ -125,6 +131,12 @@ pub mod hexstring {
     impl From<Vec<u8>> for HexString {
         fn from(words: Vec<u8>) -> Self {
             Self { words }
+        }
+    }
+
+    impl Into<Vec<u8>> for HexString {
+        fn into(self) -> Vec<u8> {
+            self.words
         }
     }
 
@@ -168,7 +180,12 @@ pub mod hexstring {
     }
 
     impl Builder for HexString {
+        type Segment = Vec<u8>;
         type Final = Self;
+
+        fn promote(seg: Self::Segment) -> Self {
+            Self { words: seg }
+        }
 
         fn word(b: u8) -> Self {
             Self { words: vec![b] }

@@ -3,24 +3,99 @@ use std::{borrow::Borrow, ops::Add};
 
 use std::boxed::Box;
 use std::collections::LinkedList;
+pub struct AtomicWrite<'a> {
+    nbytes: usize,
+    thunk: Box<dyn FnMut(&mut Vec<u8>) + 'a>,
+}
 
-pub struct LazySegment<'a> {
-    len: usize,
-    manifest: Box<dyn FnMut(&mut Vec<u8>) -> () + 'a>,
+impl<'a> AtomicWrite<'a> {
+    pub fn apply(mut self, buf: &mut Vec<u8>) {
+        (self.thunk)(buf);
+    }
+
+    pub fn new(thunk: Box<dyn FnMut(&mut Vec<u8>) + 'a>, nbytes: usize) -> Self {
+        Self { nbytes, thunk }
+    }
+
+    #[allow(dead_code)]
+    pub fn from_word(word: u8) -> Self {
+        Self {
+            nbytes: 1,
+            thunk: Box::new(move |buf: &mut Vec<u8>| buf.push(word)),
+        }
+    }
+
+    #[allow(dead_code)]
+    pub fn from_words(words: &'a [u8]) -> Self {
+        Self {
+            nbytes: words.len(),
+            thunk: Box::new(move |buf| buf.extend_from_slice(words)),
+        }
+    }
+}
+
+pub enum LazySegment<'a> {
+    Opaque(AtomicWrite<'a>),
+    Ephemeral(&'a [u8]),
+    Allocated(Vec<u8>),
+    Word(u8),
 }
 
 impl<'a> LazySegment<'a> {
-    pub fn new(f: impl FnMut(&mut Vec<u8>) -> () + 'a, len: usize) -> Self {
-        Self {
-            len,
-            manifest: Box::new(f),
+    fn len(&self) -> usize {
+        match self {
+            &LazySegment::Opaque(AtomicWrite { nbytes, .. }) => nbytes,
+            &LazySegment::Ephemeral(eph) => eph.len(),
+            LazySegment::Allocated(buf) => buf.len(),
+            &LazySegment::Word(_) => 1,
+        }
+    }
+
+    fn manifest(self, buf: &mut Vec<u8>) {
+        match self {
+            LazySegment::Opaque(aw) => aw.apply(buf),
+            LazySegment::Ephemeral(eph) => buf.extend_from_slice(eph),
+            LazySegment::Allocated(mut extra) => buf.append(&mut extra),
+            LazySegment::Word(word) => buf.push(word),
         }
     }
 
     fn promote(self) -> LazyBuilder<'a> {
-        let mut segments = LinkedList::new();
-        segments.push_front(self);
-        LazyBuilder::from_segments(segments)
+        let len = self.len();
+        LazyBuilder {
+            len,
+            segments: LinkedList::from([self]),
+        }
+    }
+}
+
+impl<'a, const N: usize> From<&'a [u8; N]> for LazySegment<'a> {
+    fn from(words: &'a [u8; N]) -> Self {
+        Self::Ephemeral(words as &'a [u8])
+    }
+}
+
+impl<const N: usize> From<[u8; N]> for LazySegment<'_> {
+    fn from(arr: [u8; N]) -> Self {
+        Self::Allocated(arr.to_vec())
+    }
+}
+
+impl<'a> From<&'a [u8]> for LazySegment<'a> {
+    fn from(words: &'a [u8]) -> Self {
+        Self::Ephemeral(words)
+    }
+}
+
+impl From<Vec<u8>> for LazySegment<'_> {
+    fn from(buf: Vec<u8>) -> Self {
+        Self::Allocated(buf)
+    }
+}
+
+impl From<u8> for LazySegment<'_> {
+    fn from(word: u8) -> Self {
+        Self::Word(word)
     }
 }
 
@@ -31,39 +106,8 @@ pub struct LazyBuilder<'a> {
 
 impl<'a> LazyBuilder<'a> {
     fn from_segments(segments: LinkedList<LazySegment<'a>>) -> Self {
-        let len = segments.iter().map(|x| x.len).sum();
+        let len = segments.iter().map(|x| x.len()).sum();
         Self { len, segments }
-    }
-}
-
-impl<'a> From<u8> for LazySegment<'a> {
-    fn from(word: u8) -> Self {
-        Self::new(move |v: &mut Vec<u8>| v.push(word), 1)
-    }
-}
-
-impl<'a, const N: usize> From<&'a [u8; N]> for LazySegment<'a> {
-    fn from(words: &'a [u8; N]) -> Self {
-        Self::new(move |v: &mut Vec<u8>| v.extend(words), N)
-    }
-}
-impl<'a, const N: usize> From<[u8; N]> for LazySegment<'a> {
-    fn from(words: [u8; N]) -> Self {
-        Self::new(move |v: &mut Vec<u8>| v.extend(words), N)
-    }
-}
-
-impl<'a> From<Vec<u8>> for LazySegment<'a> {
-    fn from(mut buf: Vec<u8>) -> Self {
-        let len = buf.len();
-        Self::new(move |v: &mut Vec<u8>| v.append(&mut buf), len)
-    }
-}
-
-impl<'a> From<&'a [u8]> for LazySegment<'a> {
-    fn from(words: &'a [u8]) -> Self {
-        let len = words.len();
-        Self::new(move |v: &mut Vec<u8>| v.extend(words), len)
     }
 }
 
@@ -79,15 +123,20 @@ where
 impl<'a> Into<Vec<u8>> for LazyBuilder<'a> {
     fn into(self) -> Vec<u8> {
         let mut buf = Vec::with_capacity(self.len);
-        for mut f in self.segments {
-            (*f.manifest)(&mut buf);
+        for f in self.segments.into_iter() {
+            f.manifest(&mut buf)
         }
         buf
     }
 }
 
 impl<'a> super::Builder for LazyBuilder<'a> {
-    type Final = super::owned::OwnedBuilder;
+    type Segment = LazySegment<'a>;
+    type Final = super::strict::StrictBuilder;
+
+    fn promote(seg: Self::Segment) -> Self {
+        seg.promote()
+    }
 
     fn empty() -> Self {
         Self::new()
@@ -102,12 +151,7 @@ impl<'a> super::Builder for LazyBuilder<'a> {
     }
 
     fn finalize(self) -> Self::Final {
-        super::owned::OwnedBuilder::from(self.into_vec())
-    }
-
-
-    fn into_vec(self) -> Vec<u8> {
-        self.into()
+        <super::strict::StrictBuilder as From<Vec<u8>>>::from(self.into())
     }
 
     fn len(&self) -> usize {
@@ -125,16 +169,30 @@ impl<'a> LazyBuilder<'a> {
     }
 
     pub fn push(&mut self, byte: u8) {
-        self.segments.push_back(LazySegment::from(byte));
+        self.len += 1;
+        if let Some(last) = self.segments.pop_back() {
+            match last {
+                LazySegment::Opaque(_) | LazySegment::Ephemeral(_) => {
+                    self.segments.push_back(last);
+                    self.segments.push_back(LazySegment::from(byte));
+                }
+                LazySegment::Allocated(mut v) => {
+                    v.push(byte);
+                    self.segments.push_back(LazySegment::Allocated(v));
+                }
+                LazySegment::Word(b) => self.segments.push_back(LazySegment::from([b, byte])),
+            }
+        } else {
+            self.segments.push_back(LazySegment::from(byte));
+        }
     }
 }
 
 impl<'a> super::TransientBuilder<'a> for LazyBuilder<'a> {
-    fn delayed(f: impl 'a + FnMut(&mut Vec<u8>) -> (), len: usize) -> Self {
-        LazySegment::new(f, len).promote()
+    fn delayed(thunk: impl 'a + FnMut(&mut Vec<u8>), len: usize) -> Self {
+        LazySegment::Opaque(AtomicWrite::new(Box::new(thunk), len)).promote()
     }
 }
-
 
 impl<'a> Add<LazyBuilder<'a>> for LazyBuilder<'a> {
     type Output = Self;
@@ -147,7 +205,7 @@ impl<'a> Add<LazyBuilder<'a>> for LazyBuilder<'a> {
 }
 
 impl<'a> AddAssign<LazyBuilder<'a>> for LazyBuilder<'a> {
-    fn add_assign(&mut self, mut rhs: LazyBuilder<'a>)  {
+    fn add_assign(&mut self, mut rhs: LazyBuilder<'a>) {
         self.len += rhs.len;
         self.segments.append(&mut rhs.segments);
     }
@@ -157,18 +215,22 @@ impl<'a, T: 'a + Borrow<[u8]>> Add<T> for LazyBuilder<'a> {
     type Output = Self;
 
     fn add(self, rhs: T) -> Self::Output {
-        let len = rhs.borrow().len();
-        let f = move |buf: &mut Vec<u8>| {
+        let nbytes = rhs.borrow().len();
+        let thunk = Box::new(move |buf: &mut Vec<u8>| {
             buf.extend_from_slice(rhs.borrow());
-        };
+        });
+        let aw = AtomicWrite { nbytes, thunk, };
 
-        <LazyBuilder as Add<LazyBuilder>>::add(self, LazySegment::new(f, len).promote())
+        <LazyBuilder as Add<LazyBuilder>>::add(
+            self,
+            LazySegment::Opaque(aw).promote(),
+        )
     }
 }
 
 #[cfg(test)]
 mod test {
-    use crate::{Builder, builder::TransientBuilder};
+    use crate::{builder::TransientBuilder, Builder};
 
     use super::*;
 
@@ -179,7 +241,9 @@ mod test {
         accum += LazyBuilder::from(b" ");
         accum += LazyBuilder::from(b"world");
         accum += LazyBuilder::from(b"!");
-        assert_eq!(accum.finalize().into_bin(), Ok(String::from("hello world!")));
+        assert_eq!(
+            accum.finalize().into_bin(),
+            Ok(String::from("hello world!"))
+        );
     }
-
 }
