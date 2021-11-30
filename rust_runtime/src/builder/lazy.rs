@@ -3,9 +3,12 @@ use std::{borrow::Borrow, ops::Add};
 
 use std::boxed::Box;
 use std::collections::LinkedList;
+
+type Thunk<'a> = Box<dyn FnMut(&mut Vec<u8>) + 'a>;
+
 pub struct AtomicWrite<'a> {
     nbytes: usize,
-    thunk: Box<dyn FnMut(&mut Vec<u8>) + 'a>,
+    thunk: Thunk<'a>,
 }
 
 impl<'a> AtomicWrite<'a> {
@@ -13,7 +16,7 @@ impl<'a> AtomicWrite<'a> {
         (self.thunk)(buf);
     }
 
-    pub fn new(thunk: Box<dyn FnMut(&mut Vec<u8>) + 'a>, nbytes: usize) -> Self {
+    pub fn new(thunk: Thunk<'a>, nbytes: usize) -> Self {
         Self { nbytes, thunk }
     }
 
