@@ -59,3 +59,4 @@ pub trait TransientBuilder<'a>: Builder {
 pub mod lazy;
 pub mod owned;
 pub mod strict;
+pub mod memo;
