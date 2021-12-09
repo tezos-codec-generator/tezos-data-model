@@ -34,7 +34,16 @@ fn impl_encode(ast: &syn::DeriveInput) -> TokenStream {
                     }
                 }
             },
-            syn::Fields::Named(syn::FieldsNamed { ..}) => unimplemented!(),
+            syn::Fields::Named(syn::FieldsNamed { named, .. }) => {
+                let ident = named.iter().map(|field| field.ident.as_ref().unwrap());
+                quote! {
+                    impl Encode for #name {
+                        fn write(&self, buf: &mut Vec<u8>) {
+                            #( self.#ident.write(buf); )*
+                        }
+                    }
+                }
+            }
         },
     };
     gen.into()
