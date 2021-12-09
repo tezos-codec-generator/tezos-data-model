@@ -34,6 +34,13 @@ impl<S, T: Display> Display for Dynamic<S, T> {
     }
 }
 
+impl<S, T> std::ops::Deref for Dynamic<S, T> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        &self.contents
+    }
+}
 
 pub trait LenPref
 where
