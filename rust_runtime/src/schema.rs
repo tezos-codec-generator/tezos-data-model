@@ -1,5 +1,5 @@
 use crate::conv::{len, Decode, Encode};
-use crate::parse::byteparser::Parser;
+use crate::parse::byteparser::{Parser, ParseResult};
 use std::ops::DerefMut;
 use std::{self, ops::Deref};
 
@@ -53,8 +53,8 @@ impl Encode for Bytes {
 }
 
 impl Decode for Bytes {
-    fn parse<P: Parser>(p: &mut P) -> Self {
-        Self(Vec::<u8>::parse(p))
+    fn parse<P: Parser>(p: &mut P) -> ParseResult<Self> {
+        Ok(Self(Vec::<u8>::parse(p)?))
     }
 }
 
@@ -104,14 +104,13 @@ impl<T: Encode> Encode for Sequence<T> {
 }
 
 impl<T: Decode> Decode for Sequence<T> {
-    fn parse<P: Parser>(p: &mut P) -> Self {
+    fn parse<P: Parser>(p: &mut P) -> ParseResult<Self> {
         let mut seq: Vec<T> = Vec::new();
-        let l = p.len();
 
-        while p.offset() != l {
-            seq.push(T::parse(p));
+        while p.remainder() != 0 {
+            seq.push(T::parse(p)?);
         }
 
-        Self(seq)
+        Ok(Self(seq))
     }
 }

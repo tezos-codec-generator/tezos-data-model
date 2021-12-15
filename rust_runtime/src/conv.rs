@@ -1,5 +1,5 @@
 use crate::builder::{Builder, TransientBuilder};
-use crate::parse::byteparser::{Parser, ToParser};
+use crate::parse::byteparser::{Parser, ToParser, ParseResult};
 
 pub mod len;
 
@@ -34,14 +34,15 @@ impl<T: Encode + len::Estimable + ?Sized> EncodeLength for T {
 }
 
 pub trait Decode {
-    fn parse<P: Parser>(p: &mut P) -> Self;
+    fn parse<P: Parser>(p: &mut P) -> ParseResult<Self>
+    where Self: Sized;
 
     fn decode<U: ToParser>(inp: U) -> Self
     where
         Self: Sized,
     {
         let mut p = inp.to_parser();
-        Self::parse(&mut p)
+        Self::parse(&mut p).expect(&format!("<{} as Decode>::decode: unable to parse value (ParseError encountered): ", std::any::type_name::<Self>()))
     }
 }
 
@@ -52,9 +53,8 @@ impl Encode for Vec<u8> {
 }
 
 impl Decode for Vec<u8> {
-    fn parse<P: Parser>(p: &mut P) -> Self {
+    fn parse<P: Parser>(p: &mut P) -> ParseResult<Self> {
         p.get_dynamic(p.len() - p.offset())
-            .expect("<Vec<u8> as Decode>::parse: Buffer read error encountered")
     }
 }
 
@@ -71,12 +71,10 @@ impl Encode for String {
 }
 
 impl Decode for String {
-    fn parse<P: Parser>(p: &mut P) -> Self {
-        let buf: Vec<u8> = p
-            .get_dynamic(p.len() - p.offset())
-            .expect("<String as Decode>::parse: Buffer read error encountered");
-        String::from_utf8(buf)
-            .expect("<String as Decode>::parse: UTF-8 conversion error encountered")
+    fn parse<P: Parser>(p: &mut P) -> ParseResult<Self> {
+        let buf: Vec<u8> = p.get_dynamic(p.len() - p.offset())?;
+
+        Ok(String::from_utf8(buf)?)
     }
 }
 
@@ -95,13 +93,11 @@ impl<T: Encode> Encode for Option<T> {
 }
 
 impl<T: Decode> Decode for Option<T> {
-    fn parse<P: Parser>(p: &mut P) -> Self {
-        if p.get_bool()
-            .expect("Derived Decode::decode for Option<…> encountered error reading leading byte")
-        {
-            Some(T::parse(p))
-        } else {
-            None
+    fn parse<P: Parser>(p: &mut P) -> ParseResult<Self> {
+        match p.get_tagword::<Option<T>>(&[0x00, 0xff])? {
+            0xff => Ok(Some(T::parse(p)?)),
+            0x00 => Ok(None),
+            _ => unreachable!(),
         }
     }
 }

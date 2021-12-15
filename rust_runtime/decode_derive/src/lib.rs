@@ -20,8 +20,8 @@ fn impl_decode(ast: &syn::DeriveInput) -> TokenStream {
             syn::Fields::Unit => {
                 quote! {
                     impl Decode for #name {
-                        fn parse<P: Parser>(_: &mut P) -> Self {
-                            Self()
+                        fn parse<P: Parser>(_: &mut P) -> ParseResult<Self> {
+                            Ok(Self())
                         }
                     }
                 }
@@ -30,8 +30,8 @@ fn impl_decode(ast: &syn::DeriveInput) -> TokenStream {
                 let ty = unnamed.iter().map(|x| &x.ty);
                 quote! {
                     impl Decode for #name {
-                        fn parse<P: Parser>(p: &mut P) -> Self {
-                            Self(#( <#ty as Decode>::parse(p) ),*)
+                        fn parse<P: Parser>(p: &mut P) -> ParseResult<Self> {
+                            Ok(Self(#( <#ty as Decode>::parse(p)? ),*))
                         }
                     }
                 }
@@ -40,8 +40,8 @@ fn impl_decode(ast: &syn::DeriveInput) -> TokenStream {
                 let (fname, ty) : (Vec<&syn::Ident>, Vec<&syn::Type>) = named.iter().map(|x| (x.ident.as_ref().unwrap(), &x.ty)).unzip();
                 quote! {
                     impl Decode for #name {
-                        fn parse<P: Parser>(p: &mut P) -> Self {
-                            Self { #( #fname: <#ty as Decode>::parse(p) ),* }
+                        fn parse<P: Parser>(p: &mut P) -> ParseResult<Self> {
+                            Ok(Self { #( #fname: <#ty as Decode>::parse(p)? ),* })
                         }
                     }
                 }

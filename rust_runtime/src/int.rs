@@ -1,5 +1,7 @@
 use crate::conv::len::FixedLength;
 use crate::conv::{Decode, Encode};
+use crate::parse::byteparser::ParseResult;
+use crate::parse::errors::{ExternalErrorKind, ParseError};
 use crate::Parser;
 use std::convert::{TryFrom, TryInto};
 use std::fmt::{Debug, Display};
@@ -58,6 +60,25 @@ impl Display for OutOfRange {
                 "Provided value (:= {}) greater than RangedInt maximum bound (:= {})",
                 val, max
             ),
+        }
+    }
+}
+
+impl Into<ParseError> for OutOfRange {
+    fn into(self) -> ParseError {
+        match self {
+            OutOfRange::Underflow { min, val } => {
+                ParseError::ExternalError(ExternalErrorKind::RangeViolation {
+                    bound: crate::bound::Bound::LowerBound(min),
+                    value: val,
+                })
+            }
+            OutOfRange::Overflow { max, val } => {
+                ParseError::ExternalError(ExternalErrorKind::RangeViolation {
+                    bound: crate::bound::Bound::UpperBound(max),
+                    value: val,
+                })
+            }
         }
     }
 }
@@ -204,44 +225,44 @@ impl_encode_words!(i32);
 impl_encode_words!(i64);
 
 impl Decode for u8 {
-    fn parse<P: Parser>(p: &mut P) -> Self {
-        p.get_u8().unwrap()
+    fn parse<P: Parser>(p: &mut P) -> ParseResult<Self> {
+        p.get_u8()
     }
 }
 
 impl Decode for i8 {
-    fn parse<P: Parser>(p: &mut P) -> Self {
-        p.get_i8().unwrap()
+    fn parse<P: Parser>(p: &mut P) -> ParseResult<Self> {
+        p.get_i8()
     }
 }
 
 impl Decode for u16 {
-    fn parse<P: Parser>(p: &mut P) -> Self {
-        p.get_u16().unwrap()
+    fn parse<P: Parser>(p: &mut P) -> ParseResult<Self> {
+        p.get_u16()
     }
 }
 
 impl Decode for i16 {
-    fn parse<P: Parser>(p: &mut P) -> Self {
-        p.get_i16().unwrap()
+    fn parse<P: Parser>(p: &mut P) -> ParseResult<Self> {
+        p.get_i16()
     }
 }
 
 impl Decode for i32 {
-    fn parse<P: Parser>(p: &mut P) -> Self {
-        p.get_i32().unwrap()
+    fn parse<P: Parser>(p: &mut P) -> ParseResult<Self> {
+        p.get_i32()
     }
 }
 
 impl Decode for u32 {
-    fn parse<P: Parser>(p: &mut P) -> Self {
-        p.get_u32().unwrap()
+    fn parse<P: Parser>(p: &mut P) -> ParseResult<Self> {
+        p.get_u32()
     }
 }
 
 impl Decode for i64 {
-    fn parse<P: Parser>(p: &mut P) -> Self {
-        p.get_i64().unwrap()
+    fn parse<P: Parser>(p: &mut P) -> ParseResult<Self> {
+        p.get_i64()
     }
 }
 
@@ -273,21 +294,21 @@ where
     I: Integral + Decode,
     <I as TryFrom<i64>>::Error: std::fmt::Debug,
 {
-    fn parse<P: Parser>(p: &mut P) -> Self {
-        let raw = I::parse(p);
+    fn parse<P: Parser>(p: &mut P) -> ParseResult<Self> {
+        let raw = I::parse(p)?;
         if MIN > 0 {
             let rval: i64 = raw.into() + i64::from(MIN);
-            if rval > (MAX as i64) {
-                panic!("RangedInt::decode: value parsed would exceed range-bounds: {} > MAX (:= {}) - MIN (:= {})", raw, MAX, MIN)
+            match OutOfRange::restrict(rval, MIN, MAX) {
+                Ok(val) => match val.try_into() {
+                    Ok(x) => Ok(Self::new(x)),
+                    Err(_) => unreachable!(), /* MIN <= val <= MAX should guarantee val is in its representational range */
+                },
+                Err(oor) => Err(oor.into()),
             }
-            Self::new(rval.try_into().unwrap())
         } else {
-            if raw.into() < (MIN as i64) {
-                panic!("RangedInt::decode: value parsed would underflow minimum range-bound: {} < MIN (:= {})", raw, MIN)
-            } else if raw.into() > (MAX as i64) {
-                panic!("RangedInt::decode: value parsed would overflow maximum range-bound: {} > MAX (:= {})", raw, MAX)
-            } else {
-                Self::new(raw)
+            match OutOfRange::restrict(raw, MIN, MAX) {
+                Ok(val) => Ok(Self::new(val)),
+                Err(oor) => Err(oor.into()),
             }
         }
     }

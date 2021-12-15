@@ -1,6 +1,7 @@
 pub mod bytestring {
     use crate::conv::{Decode, Encode, len};
     use crate::Parser;
+    use crate::parse::byteparser::ParseResult;
 
     #[derive(PartialEq, Eq, PartialOrd, Ord, Debug)]
     pub struct ByteString<const N: usize>([u8; N]);
@@ -22,8 +23,8 @@ pub mod bytestring {
     }
 
     impl<const N: usize> Decode for ByteString<N> {
-        fn parse<P: Parser>(p: &mut P) -> Self {
-            ByteString(p.get_fixed::<N>().unwrap())
+        fn parse<P: Parser>(p: &mut P) -> ParseResult<Self> {
+            Ok(ByteString(p.get_fixed::<N>()?))
         }
     }
 
@@ -53,7 +54,7 @@ pub mod charstring {
     use std::convert::TryInto;
 
     use crate::conv::{Decode, Encode, len};
-    use crate::parse::byteparser::Parser;
+    use crate::parse::byteparser::{Parser, ParseResult};
 
     #[derive(PartialEq, Eq, PartialOrd, Ord, Debug)]
     pub struct CharString<const N: usize> {
@@ -100,8 +101,8 @@ pub mod charstring {
     }
 
     impl<const N: usize> Decode for CharString<N> {
-        fn parse<P: Parser>(p: &mut P) -> Self {
-            p.get_fixed::<N>().unwrap().into()
+        fn parse<P: Parser>(p: &mut P) -> ParseResult<Self> {
+            Ok(p.get_fixed::<N>()?.into())
         }
     }
     #[cfg(test)]

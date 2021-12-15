@@ -1,4 +1,5 @@
 use crate::conv::{Decode, Encode};
+use crate::parse::byteparser::ParseResult;
 use crate::{Parser};
 
 impl Encode for () {
@@ -6,8 +7,8 @@ impl Encode for () {
 }
 
 impl Decode for () {
-    fn parse<P: Parser>(_: &mut P) -> Self {
-        return ();
+    fn parse<P: Parser>(_: &mut P) -> ParseResult<Self> {
+        Ok(())
     }
 }
 
@@ -21,8 +22,8 @@ impl Encode for bool {
 }
 
 impl Decode for bool {
-    fn parse<P: Parser>(p: &mut P) -> Self {
-        p.get_bool().unwrap()
+    fn parse<P: Parser>(p: &mut P) -> ParseResult<Self> {
+        p.get_bool()
     }
 }
 

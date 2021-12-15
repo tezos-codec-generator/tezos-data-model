@@ -2,7 +2,7 @@ extern crate bitvec;
 extern crate num_bigint;
 extern crate rug;
 
-use crate::{Decode, Encode, Parser};
+use crate::{Decode, Encode, Parser, parse::byteparser::ParseResult};
 
 pub trait Zarith {
     fn deserialize(bytes: &[u8]) -> Self;
@@ -16,11 +16,8 @@ impl<I: Zarith> Encode for I {
 }
 
 impl<I: Zarith> Decode for I {
-    fn parse<P: Parser>(p: &mut P) -> Self {
-        I::deserialize(
-            &p.get_self_terminating(|byte| byte & 0x80 == 0)
-                .expect("<impl Zarith as Decode>::parse: error encountered"),
-        )
+    fn parse<P: Parser>(p: &mut P) -> ParseResult<Self> {
+        Ok(I::deserialize( &p.get_self_terminating(|byte| byte & 0x80 == 0)?))
     }
 }
 

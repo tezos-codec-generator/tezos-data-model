@@ -7,14 +7,15 @@ pub mod util;
 pub mod fixed;
 pub mod dynamic;
 pub mod schema;
-mod internal;
 pub mod zarith;
+mod internal;
+mod bound;
 
 pub use crate::dynamic::Dynamic;
 pub use crate::conv::{Decode, Encode, len::{FixedLength, ScalarLength, Estimable}};
 pub use crate::int::{i31, u30};
 pub use crate::parse::{
-    byteparser::{ByteParser, ToParser, Parser},
+    byteparser::{ByteParser, ToParser, Parser, ParseResult},
     hexstring::HexString,
 };
 pub use crate::fixed::{bytestring::ByteString, charstring::CharString};

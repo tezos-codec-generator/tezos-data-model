@@ -1,5 +1,5 @@
 pub mod errors {
-    use std::fmt::*;
+    use std::{fmt::*, string::FromUtf8Error};
 
     #[derive(Debug, Clone)]
     pub enum ConvError<T> {
@@ -44,14 +44,47 @@ pub mod errors {
     }
 
     #[derive(Debug, Clone)]
+    pub enum ExternalErrorKind {
+        UncoercableString(FromUtf8Error),
+        RangeViolation { bound: crate::bound::Bound<i64>, value: i64 },
+    }
+
+    impl Display for ExternalErrorKind {
+        fn fmt(&self, f: &mut Formatter) -> Result {
+            match self {
+                ExternalErrorKind::UncoercableString(err) => {
+                    write!(
+                        f,
+                        "parsed byte-array could not be coerced to String: {}",
+                        err
+                    )
+                }
+                ExternalErrorKind::RangeViolation { bound, value } => {
+                    write!(
+                        f,
+                        "parsed value `{}` violates target type {}",
+                        value, bound
+                    )
+                }
+            }
+        }
+    }
+
+    #[derive(Debug, Clone)]
     pub enum ParseError {
         InternalError(InternalErrorKind),
+        ExternalError(ExternalErrorKind),
         BufferOverflow {
             buflen: usize,
             offset: usize,
             requested: usize,
         },
         InvalidBoolean(u8),
+        InvalidTagWord {
+            expected: Vec<u8>,
+            for_type: String,
+            actual: u8,
+        },
         NonTerminating(Vec<u8>),
     }
 
@@ -64,17 +97,37 @@ pub mod errors {
                     requested,
                 } => {
                     write!(f, "cannot increment offset by {} bytes (currently at byte {} in buffer of length {})", requested, offset, buflen)
-                },
+                }
                 ParseError::InternalError(err) => {
                     write!(f, "internal error ({})", err)
-                },
+                }
+                ParseError::ExternalError(err) => {
+                    write!(f, "external error ({})", err)
+                }
                 ParseError::InvalidBoolean(byte) => {
                     write!(f, "expected boolean := (0xff | 0x00), got 0x{:02x}", byte)
-                },
+                }
+                ParseError::InvalidTagWord {
+                    expected,
+                    for_type,
+                    actual,
+                } => {
+                    write!(
+                        f,
+                        "discriminant for type {} must be one of `0x{:02x?}`, got 0x{:02x}",
+                        for_type, expected, actual
+                    )
+                }
                 ParseError::NonTerminating(buf) => {
                     write!(f, "self-terminating codec cut off (end-of-window encountered before terminating condition met): `{}`", crate::util::hex_of_bytes(buf))
-                },
+                }
             }
+        }
+    }
+
+    impl From<FromUtf8Error> for ParseError {
+        fn from(err: FromUtf8Error) -> Self {
+            Self::ExternalError(ExternalErrorKind::UncoercableString(err))
         }
     }
 }
@@ -195,7 +248,9 @@ pub mod hexstring {
             Self { words: b.to_vec() }
         }
 
-        fn finalize(self) -> Self { self }
+        fn finalize(self) -> Self {
+            self
+        }
 
         fn into_vec(self) -> Vec<u8> {
             self.words
@@ -348,11 +403,69 @@ pub mod byteparser {
 
     pub type ParseResult<T> = Result<T, ParseError>;
 
+    /**
+     # Parser
+
+      This trait is an abstraction over types respresenting a stateful
+      parse-object, with default implementations for a variety of monomorphic
+      `get_*` functions, as well as query operations on the internal state,
+      and state-mutational functions that operate on *context-windows*.
+
+     ## Model
+
+     While the implementing types are largely free to define their own
+     operational semantics for the required methods of this function, the
+     intensional semantics are as follows:
+
+     * The Parser-object is constructed over an immutable byte-buffer.
+     * All parsing is done in a non-backtracking, zero-lookahead fashion; a byte in the buffer
+       can only be viewed by consuming it, and only after all preceding indices in the buffer
+       have been consumed; after a byte is consumed, it cannot be consumed again.
+     * A *context-window*, or a bounded contiguous view of a section of the buffer,
+       may be constructed. While a context-window exists, any bytes beyond its upper bound
+       are protected and cannot be consumed by any Parser method until that
+       context window is lifted. A context-window can only be lifted by calling
+       [enforce_target] when all bytes within the window have been consumed.
+
+    ## Context-Windows
+
+    In order to facilitate bounds-setting and bounds-checking for dynamically sized elements with length prefixes,
+    `Parser` uses a model of *context windows*, which are conceptually (though not necessarily implementationally) a stack
+    of target offsets, which may in fact be hard lower bounds on remainding-buffer-length in the case of slice-based parsers, or fixed values
+    of the mutating parse-head for buffer-based implementations such as [ByteParser].
+
+    The following properties should be respected by each implementation of the `Parser` trait:
+
+    * A fresh `p : impl Parser` object should have `p.offset() == 0` and `p.len()` equal to the length of the parse-buffer
+    * `self.len() - self.offset()` is the largest possible `n` for which `self.consume(n)` returns an `Ok(_)` value, which should also be the largest possible `n` for which `self.set_fit(n)` succeeds. Both should fail for any greater values of `n`, either through `Err(_)` returns or panics.
+    * The value of `self.len() - self.offset()` before and after a call to `self.consume(n)` should represent a decrease by `n` if the consume call is an `Ok(_)` value, or remain unchanged if it is an `Err(_)` value. Only one of `self.len()` and `self.offset()` should change in this fashion.
+    * `self.set_fit(m)` should fail whenever `self.len() < m + self.offset()`, and succeed otherwise
+    * Immediately after a successful call of `self.set_fit(n)`, `self.len() == n + self.offset()` should hold.
+    * `self.test_target()` should return `true` if and only if `self.offset() == self.len()` holds with at least one context window present
+    * `self.enforce_target()` should remove the most recently set target if `self.test_target()` would return true, and panic otherwise
+
+    */
     pub trait Parser: Iterator<Item = u8> {
+        /** Computes the length of the current view of the Parser's buffer.
+         *
+         * Decrements in the shrinking-slice model, and remains invariant modulo context-window
+         * manipulation in the buffer-with-offset model
+         */
         fn len(&self) -> usize;
 
+        /** Computes the current value of the offset into the Parser's buffer.
+         *
+         * This should either be invariant, or increase by the number of bytes consumed
+         * by any method that returns bytes from the buffer.
+         */
         fn offset(&self) -> usize;
 
+        fn remainder(&self) -> usize {
+            self.len() - self.offset()
+        }
+
+        /** Consumes the speficied number of bytes from buffer[nbytes]
+         */
         fn consume(&mut self, nbytes: usize) -> ParseResult<&[u8]>;
 
         fn set_fit(&mut self, n: usize);
@@ -432,6 +545,27 @@ pub mod byteparser {
             }
         }
 
+        fn get_tagword<T>(&mut self, valid: &[u8]) -> ParseResult<u8> {
+            match self.next() {
+                Some(byte) => {
+                    if valid.contains(&byte) {
+                        Ok(byte)
+                    } else {
+                        Err(ParseError::InvalidTagWord {
+                            expected: valid.to_vec(),
+                            actual: byte,
+                            for_type: std::any::type_name::<T>().to_owned(),
+                        })
+                    }
+                }
+                None => Err(ParseError::BufferOverflow {
+                    buflen: self.len(),
+                    requested: 1,
+                    offset: self.offset(),
+                }),
+            }
+        }
+
         fn get_dynamic(&mut self, nbytes: usize) -> ParseResult<Vec<u8>> {
             self.consume(nbytes).map(Vec::from)
         }
@@ -442,17 +576,17 @@ pub mod byteparser {
 
         fn get_self_terminating<F>(&mut self, is_terminal: F) -> ParseResult<Vec<u8>>
         where
-        F: Fn(u8) -> bool
+            F: Fn(u8) -> bool,
         {
-            let mut ret : Vec<u8> = Vec::with_capacity(self.len() - self.offset());
+            let mut ret: Vec<u8> = Vec::with_capacity(self.len() - self.offset());
             loop {
                 if let Some(byte) = self.next() {
                     ret.push(byte);
                     if is_terminal(byte) {
-                        break Ok(ret)
+                        break Ok(ret);
                     }
                 } else {
-                    break Err(ParseError::NonTerminating(ret))
+                    break Err(ParseError::NonTerminating(ret));
                 }
             }
         }

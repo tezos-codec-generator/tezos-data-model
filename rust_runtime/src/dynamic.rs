@@ -1,4 +1,4 @@
-use crate::{Estimable, FixedLength, Parser, conv::{Decode, Encode, EncodeLength}, u30};
+use crate::{Estimable, FixedLength, Parser, conv::{Decode, Encode, EncodeLength}, u30, parse::byteparser::ParseResult};
 use std::{convert::{TryFrom, TryInto}, fmt::{Debug, Display}, marker::PhantomData};
 
 pub struct Dynamic<S, T> {
@@ -70,14 +70,14 @@ impl<S: LenPref, T: EncodeLength> Encode for Dynamic<S, T> {
 }
 
 impl<S: LenPref, T: Decode> Decode for Dynamic<S, T> {
-    fn parse<P: Parser>(p: &mut P) -> Self {
-        let buflen = S::parse(p);
+    fn parse<P: Parser>(p: &mut P) -> ParseResult<Self> {
+        let buflen = S::parse(p)?;
         p.set_fit(buflen.into());
-        let contents = T::parse(p);
+        let contents = T::parse(p)?;
         p.enforce_target();
-        Dynamic {
+        Ok(Dynamic {
             contents,
             _phantom: PhantomData,
-        }
+        })
     }
 }
