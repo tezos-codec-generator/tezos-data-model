@@ -1,6 +1,7 @@
 pub mod builder;
 pub mod conv;
 pub mod int;
+pub mod float;
 pub mod parse;
 pub mod prim;
 pub mod util;

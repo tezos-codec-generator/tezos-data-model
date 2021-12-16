@@ -1,35 +1,63 @@
-use std::fmt::{Debug, Display};
+use std::{fmt::{Debug, Display}};
 
-pub enum Bound<T> {
-    UpperBound(T),
-    LowerBound(T),
+use crate::parse::errors::{ParseError, ExternalErrorKind};
+
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub enum OutOfRange<Ext: Copy> {
+    Underflow { min: Ext, val: Ext },
+    Overflow { max: Ext, val: Ext },
 }
 
-impl<T: Clone> Clone for Bound<T> {
-    fn clone(&self) -> Self {
-        match self {
-            Self::UpperBound(arg0) => Self::UpperBound(arg0.clone()),
-            Self::LowerBound(arg0) => Self::LowerBound(arg0.clone()),
+impl<Ext: Copy + PartialOrd> OutOfRange<Ext> {
+    /// Restricts input values of an integral type `T: Into<i64> + Copy>`
+    /// into the range defined by a lower and upper bound of type `U: Into<i64>`.
+    ///
+    /// If the provided value is within the range bounds, returns that value wrapped in an `Ok`
+    /// constructor; otherwise returns an `Err` containing the appropriate `OutOfRange` variant.
+    ///
+    pub fn restrict<T, U>(x: T, min: U, max: U) -> Result<T, Self>
+    where
+        T: Into<Ext> + Copy,
+        U: Into<Ext>,
+    {
+        let min_ext: Ext = min.into();
+        let max_ext: Ext = max.into();
+        let val: Ext = x.into();
+        if val < min_ext {
+            Err(Self::Underflow { min: min_ext, val })
+        } else if val > max_ext {
+            Err(Self::Overflow { max: max_ext, val })
+        } else {
+            Ok(x)
         }
     }
 }
 
-impl<T: Copy> Copy for Bound<T> {}
-
-impl<T: Debug> Debug for Bound<T> {
+impl<Ext: Display + Copy> Display for OutOfRange<Ext> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::UpperBound(arg0) => f.debug_tuple("UpperBound").field(arg0).finish(),
-            Self::LowerBound(arg0) => f.debug_tuple("LowerBound").field(arg0).finish(),
+            &OutOfRange::Underflow { min, val } => write!(
+                f,
+                "Provided value (:= {}) less than RangedInt minimum bound (:= {})",
+                val, min
+            ),
+            &OutOfRange::Overflow { max, val } => write!(
+                f,
+                "Provided value (:= {}) greater than RangedInt maximum bound (:= {})",
+                val, max
+            ),
         }
     }
 }
 
-impl<T: Display> Display for Bound<T> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::UpperBound(max) => write!(f, "upper bound (:= {})", max),
-            Self::LowerBound(min) => write!(f, "lower bound (:= {})", min),
-        }
+impl Into<ParseError> for OutOfRange<i64> {
+    fn into(self) -> ParseError {
+        ParseError::ExternalError(ExternalErrorKind::IntRangeViolation(self))
+    }
+}
+
+impl Into<ParseError> for OutOfRange<f64> {
+    fn into(self) -> ParseError {
+        ParseError::ExternalError(ExternalErrorKind::FloatRangeViolation(self))
     }
 }

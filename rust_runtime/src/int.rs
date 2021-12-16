@@ -1,10 +1,10 @@
 use crate::conv::len::FixedLength;
 use crate::conv::{Decode, Encode};
 use crate::parse::byteparser::ParseResult;
-use crate::parse::errors::{ExternalErrorKind, ParseError};
 use crate::Parser;
 use std::convert::{TryFrom, TryInto};
 use std::fmt::{Debug, Display};
+use crate::bound::OutOfRange;
 
 /// Marker trait used as shorthand for the desired trait bounds on `RangedInt` backing types
 pub trait Integral: Eq + Ord + Debug + Display + Copy + Into<i64> + TryFrom<i64> {}
@@ -15,73 +15,6 @@ impl Integral for u16 {}
 impl Integral for u32 {}
 impl Integral for i32 {}
 
-/// Error type representing RangedInt values that fall outside of their specified range
-#[derive(Debug, PartialEq, Eq)]
-pub enum OutOfRange {
-    Underflow { min: i64, val: i64 },
-    Overflow { max: i64, val: i64 },
-}
-
-impl OutOfRange {
-    /// Restricts input values of an integral type `T: Into<i64> + Copy>`
-    /// into the range defined by a lower and upper bound of type `U: Into<i64>`.
-    ///
-    /// If the provided value is within the range bounds, returns that value wrapped in an `Ok`
-    /// constructor; otherwise returns an `Err` containing the appropriate `OutOfRange` variant.
-    ///
-    pub fn restrict<T, U>(x: T, min: U, max: U) -> Result<T, Self>
-    where
-        T: Into<i64> + Copy,
-        U: Into<i64>,
-    {
-        let min64: i64 = min.into();
-        let max64: i64 = max.into();
-        let val: i64 = x.into();
-        if val < min64 {
-            Err(Self::Underflow { min: min64, val })
-        } else if val > max64 {
-            Err(Self::Overflow { max: max64, val })
-        } else {
-            Ok(x)
-        }
-    }
-}
-
-impl Display for OutOfRange {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            &OutOfRange::Underflow { min, val } => write!(
-                f,
-                "Provided value (:= {}) less than RangedInt minimum bound (:= {})",
-                val, min
-            ),
-            &OutOfRange::Overflow { max, val } => write!(
-                f,
-                "Provided value (:= {}) greater than RangedInt maximum bound (:= {})",
-                val, max
-            ),
-        }
-    }
-}
-
-impl Into<ParseError> for OutOfRange {
-    fn into(self) -> ParseError {
-        match self {
-            OutOfRange::Underflow { min, val } => {
-                ParseError::ExternalError(ExternalErrorKind::RangeViolation {
-                    bound: crate::bound::Bound::LowerBound(min),
-                    value: val,
-                })
-            }
-            OutOfRange::Overflow { max, val } => {
-                ParseError::ExternalError(ExternalErrorKind::RangeViolation {
-                    bound: crate::bound::Bound::UpperBound(max),
-                    value: val,
-                })
-            }
-        }
-    }
-}
 
 impl<I, const MIN: i32, const MAX: i32> Into<i64> for RangedInt<I, MIN, MAX>
 where
@@ -111,7 +44,7 @@ impl<I, const MIN: i32, const MAX: i32> TryFrom<i32> for RangedInt<I, MIN, MAX>
 where
     I: Integral,
 {
-    type Error = OutOfRange;
+    type Error = OutOfRange<i64>;
 
     fn try_from(x: i32) -> Result<Self, Self::Error> {
         match I::try_from(i64::from(x)) {
@@ -123,7 +56,7 @@ where
 }
 
 impl TryFrom<usize> for u30 {
-    type Error = OutOfRange;
+    type Error = OutOfRange<i64>;
 
     fn try_from(x: usize) -> Result<Self, Self::Error> {
         match u32::try_from(x) {
@@ -139,7 +72,7 @@ impl<I, const MIN: i32, const MAX: i32> TryFrom<u32> for RangedInt<I, MIN, MAX>
 where
     I: Integral,
 {
-    type Error = OutOfRange;
+    type Error = OutOfRange<i64>;
 
     fn try_from(x: u32) -> Result<Self, Self::Error> {
         match I::try_from(i64::from(x)) {
@@ -223,6 +156,7 @@ impl_encode_words!(i16);
 impl_encode_words!(u32);
 impl_encode_words!(i32);
 impl_encode_words!(i64);
+impl_encode_words!(u64);
 
 impl Decode for u8 {
     fn parse<P: Parser>(p: &mut P) -> ParseResult<Self> {
@@ -266,6 +200,12 @@ impl Decode for i64 {
     }
 }
 
+impl Decode for u64 {
+    fn parse<P: Parser>(p: &mut P) -> ParseResult<Self> {
+        p.get_u64()
+    }
+}
+
 impl<I, const MIN: i32, const MAX: i32> Encode for RangedInt<I, MIN, MAX>
 where
     I: Eq + Ord + Debug + Display + Copy + Encode + Into<i64> + TryFrom<i64>,
@@ -298,7 +238,7 @@ where
         let raw = I::parse(p)?;
         if MIN > 0 {
             let rval: i64 = raw.into() + i64::from(MIN);
-            match OutOfRange::restrict(rval, MIN, MAX) {
+            match OutOfRange::<i64>::restrict(rval, MIN, MAX) {
                 Ok(val) => match val.try_into() {
                     Ok(x) => Ok(Self::new(x)),
                     Err(_) => unreachable!(), /* MIN <= val <= MAX should guarantee val is in its representational range */

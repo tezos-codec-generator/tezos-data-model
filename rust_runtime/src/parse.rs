@@ -1,6 +1,8 @@
 pub mod errors {
     use std::{fmt::*, string::FromUtf8Error};
 
+    use crate::bound::OutOfRange;
+
     #[derive(Debug, Clone)]
     pub enum ConvError<T> {
         ParityError(T),
@@ -46,7 +48,8 @@ pub mod errors {
     #[derive(Debug, Clone)]
     pub enum ExternalErrorKind {
         UncoercableString(FromUtf8Error),
-        RangeViolation { bound: crate::bound::Bound<i64>, value: i64 },
+        IntRangeViolation(OutOfRange<i64>),
+        FloatRangeViolation(OutOfRange<f64>),
     }
 
     impl Display for ExternalErrorKind {
@@ -59,12 +62,11 @@ pub mod errors {
                         err
                     )
                 }
-                ExternalErrorKind::RangeViolation { bound, value } => {
-                    write!(
-                        f,
-                        "parsed value `{}` violates target type {}",
-                        value, bound
-                    )
+                ExternalErrorKind::IntRangeViolation(x) => {
+                    write!(f, "{}", x)
+                }
+                ExternalErrorKind::FloatRangeViolation(x) => {
+                    write!(f, "{}", x)
                 }
             }
         }

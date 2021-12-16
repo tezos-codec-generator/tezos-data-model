@@ -14,7 +14,7 @@ fix_length!(0, ());
 fix_length!(1, u8, i8, bool);
 fix_length!(2, u16, i16);
 fix_length!(4, u32, i32);
-fix_length!(8, i64);
+fix_length!(8, i64, u64);
 
 impl<T: FixedLength, const N: usize> FixedLength for [T; N] {
     const LEN: usize = N * T::LEN;
