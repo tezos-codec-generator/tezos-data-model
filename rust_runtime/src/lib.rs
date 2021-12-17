@@ -1,25 +1,29 @@
+mod bound;
 pub mod builder;
 pub mod conv;
-pub mod int;
+pub mod dynamic;
+pub mod fixed;
 pub mod float;
+pub mod int;
+mod internal;
 pub mod parse;
 pub mod prim;
-pub mod util;
-pub mod fixed;
-pub mod dynamic;
 pub mod schema;
+pub mod util;
 pub mod zarith;
-mod internal;
-mod bound;
 
+pub use crate::builder::{lazy::LazyBuilder, owned::OwnedBuilder, strict::StrictBuilder, Builder};
+pub use crate::conv::{
+    len::{Estimable, FixedLength, ScalarLength},
+    Decode, Encode,
+};
 pub use crate::dynamic::Dynamic;
-pub use crate::conv::{Decode, Encode, len::{FixedLength, ScalarLength, Estimable}};
-pub use crate::int::{i31, u30};
+pub use crate::fixed::{bytestring::ByteString, charstring::CharString};
+pub use crate::float::RangedFloat;
+pub use crate::int::{i31, u30, RangedInt};
 pub use crate::parse::{
-    byteparser::{ByteParser, ToParser, Parser, ParseResult},
+    byteparser::{ByteParser, ParseResult, Parser, ToParser},
     hexstring::HexString,
 };
-pub use crate::fixed::{bytestring::ByteString, charstring::CharString};
-pub use crate::builder::{Builder, owned::OwnedBuilder, lazy::LazyBuilder, strict::StrictBuilder};
 pub use crate::schema::{Bytes, Sequence};
-pub use crate::zarith::{Zarith, n::nat_big::N, z::int_big::Z};
+pub use crate::zarith::{n::nat_big::N, z::int_big::Z, Zarith};
