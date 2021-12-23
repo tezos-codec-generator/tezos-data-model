@@ -2,36 +2,43 @@
 /// that allow user-facing types (currently only `ByteParser`) to
 /// rely on a stable abstract interface, which can be refined, extended,
 /// or refactored more easily than if they were inlined.
+use std::{
+    fmt::{Debug, Display},
+    ops::{Deref, DerefMut},
+};
 
-#[allow(unused_imports)]
-use std::cell::{Cell, RefCell};
+/// Internal value held by an Indicator, which historically
+/// has been an internally-mutable smart-pointer, but is
+/// currently implemented one-to-one with its generic type
+/// parameter.
+type ICell<T> = T;
 
-use std::{collections::VecDeque, fmt::{Debug, Display}};
-
-type ICell<T> = Cell<T>;
-
-/// Internally mutable smart-pointer to a `usize` that models a monotonically-increasing
+/// Wrapper around a `usize` that models a monotonically-increasing
 /// index into an array-like type.
 pub(crate) struct Indicator(ICell<usize>);
 
 impl Indicator {
     fn new() -> Self {
-        Self(Cell::new(0usize))
+        Self(0usize)
     }
 
-    fn bounded_advance(&self, n: usize, lim: usize) -> (usize, bool) {
-        let m: usize = self.0.get();
-        let can_advance = m + n <= lim;
+    fn can_advance(&self, n: usize, lim: usize) -> bool {
+        self.0 + n <= lim
+    }
+
+    fn bounded_advance(&mut self, n: usize, lim: usize) -> (usize, bool) {
+        let ret = self.0;
+        let can_advance = self.can_advance(n, lim);
+
         if can_advance {
-            self.0.set(m + n)
-        } else {
-            self.0.set(m)
+            self.0 += n;
         }
-        (m, can_advance)
+
+        (ret, can_advance)
     }
 
     fn value(&self) -> usize {
-        self.0.get()
+        self.0
     }
 }
 
@@ -39,6 +46,7 @@ impl Indicator {
 /// for acting as a non-backtracking place-marker during sequential
 /// access of segments of an array-like structure.
 pub trait Marker {
+    /// Create a new Market object with initial (absolute) limit `lim`
     fn new(lim: usize) -> Self;
 
     /// Attempt to 'advance' the place-marker by a given number of indices,
@@ -46,16 +54,22 @@ pub trait Marker {
     /// is always the index before modification, and the second element
     /// is `true` if and only if the increment was processed successfully.
     ///
-    /// As an advance can only fail when the target index (the current index plus
-    /// the offset indicated) would be somehow 'illegal' in the context of the
-    /// Marker object, passing `0` to a method call of `advance` should never fail.
+    /// As an advance can only fail when the target index (the current index shifted
+    /// forward in the buffer by the offset indicated) would be somehow 'illegal'
+    /// in the context of the Marker object, passing `0` to a method call of`advance`
+    /// should never fail.
     fn advance(&mut self, n: usize) -> (usize, bool);
 
     /// Returns the current index of the Marker object.
     fn get(&self) -> usize;
 }
 
+/// Sub-trait of Marker for objects that include metadata about the
+/// numerical maximal increase in offset that is possible to perform
+/// in the current state.
 pub trait BoundAwareMarker: Marker {
+    /// Returns the number of bytes that are in-bounds, i.e. the maximal value that
+    /// `self.advance` could be called with that would not fail.
     fn lim(&self) -> usize;
 
     fn rem(&self) -> usize {
@@ -74,7 +88,11 @@ pub struct Offset {
 impl Offset {
     #[allow(dead_code)]
     pub fn promote(self) -> ContextOffset {
-        ContextOffset { _abs: self._lim, cur: self.cur, frames: FrameStack::new() }
+        ContextOffset {
+            _abs: self._lim,
+            cur: self.cur,
+            frames: FrameStack::new(),
+        }
     }
 }
 
@@ -104,52 +122,127 @@ impl BoundAwareMarker for Offset {
     }
 }
 
-
 #[derive(Debug)]
 pub enum FrameError {
-    NestingViolation { limit: usize, value: usize },
+    NestingViolation { innermost: usize, novel: usize },
 }
 
 impl Display for FrameError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            &FrameError::NestingViolation { limit, value } => f.write_fmt(format_args!(
-                "nesting violation: new window (->{}) would exceed innermost bounds (->{})",
-                value, limit
+            &FrameError::NestingViolation { innermost, novel } => f.write_fmt(format_args!(
+                "nesting violation: novel window (->{}<-) violates nesting condition of innermost bounds (->{}<-)",
+                novel, innermost
             )),
         }
     }
 }
 
-pub struct FrameStack(VecDeque<usize>);
+pub(crate) trait Stack {
+    type Item: Copy;
 
-impl FrameStack {
-    pub fn new() -> Self {
-        Self(VecDeque::new())
+    fn peek(&self) -> Option<Self::Item>;
+
+    fn peek_or(&self, default: Self::Item) -> Self::Item {
+        self.peek().unwrap_or(default)
     }
 
-    pub fn peek(&self) -> Option<usize> {
-        self.0.back().map(|&u| u)
+    fn peek_mut(&mut self) -> Option<&mut Self::Item>;
+
+    fn pop(&mut self) -> Option<Self::Item>;
+
+    fn pop_or(&mut self, default: Self::Item) -> Self::Item {
+        self.pop().unwrap_or(default)
     }
 
-    pub fn peek_or(&self, def: usize) -> usize {
-        self.peek().unwrap_or(def)
-    }
+    fn push(&mut self, item: Self::Item);
 
-    pub fn push(&mut self, n: usize) -> Result<(), FrameError> {
-        match self.peek() {
-            Some(m) if m < n => Err(FrameError::NestingViolation { limit: m, value: n }),
-            _ => Ok(self.0.push_back(n)),
+    fn push_validated<Error, F: Fn(Option<Self::Item>, Self::Item) -> Option<Error>>(
+        &mut self,
+        item: Self::Item,
+        validate: F,
+    ) -> Result<(), Error> {
+        match validate(self.peek(), item) {
+            None => Ok(self.push(item)),
+            Some(err) => Err(err),
         }
     }
+}
 
-    pub fn pop(&mut self) -> Option<usize> {
-        self.0.pop_back()
+impl<T: Copy> Stack for Vec<T> {
+    type Item = T;
+
+    fn peek(&self) -> Option<Self::Item> {
+        self.last().copied()
     }
 
-    #[allow(dead_code)]
-    pub fn pop_or(&mut self, def: usize) -> usize {
-        self.pop().unwrap_or(def)
+    fn pop(&mut self) -> Option<Self::Item> {
+        Vec::pop(self)
+    }
+
+    fn push(&mut self, item: Self::Item) {
+        Vec::push(self, item)
+    }
+
+    fn peek_mut(&mut self) -> Option<&mut Self::Item> {
+        self.last_mut()
+    }
+}
+
+struct FrameStack(Vec<usize>);
+
+impl Deref for FrameStack {
+    type Target = Vec<usize>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl DerefMut for FrameStack {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
+pub fn validate_nesting(innermost: Option<usize>, novel: usize) -> Option<FrameError> {
+    if innermost? >= novel {
+        None
+    } else {
+        Some(FrameError::NestingViolation {
+            innermost: innermost?,
+            novel,
+        })
+    }
+}
+
+impl FrameStack {
+    fn new() -> Self {
+        Self(Vec::new())
+    }
+
+    fn push_frame(&mut self, item: usize) -> Result<(), FrameError> {
+        self.push_validated(item, validate_nesting)
+    }
+}
+
+impl Stack for FrameStack {
+    type Item = usize;
+
+    fn peek(&self) -> Option<Self::Item> {
+        self.last().copied()
+    }
+
+    fn pop(&mut self) -> Option<Self::Item> {
+        Vec::pop(self)
+    }
+
+    fn push(&mut self, item: Self::Item) {
+        Vec::push(self, item)
+    }
+
+    fn peek_mut(&mut self) -> Option<&mut Self::Item> {
+        self.last_mut()
     }
 }
 
@@ -160,7 +253,6 @@ pub struct ContextOffset {
 }
 
 impl ContextOffset {
-
     pub fn set_fit(&mut self, winsize: usize) {
         let cur: usize = self.get();
         let new_tgt: usize = cur + winsize;
@@ -171,7 +263,7 @@ impl ContextOffset {
             );
         }
 
-        self.frames.push(new_tgt).unwrap()
+        self.frames.push_frame(new_tgt).unwrap()
     }
 
     /// Tests whether the current offset matches the goal
@@ -211,7 +303,6 @@ impl Marker for ContextOffset {
             cur: Indicator::new(),
         }
     }
-
 
     fn advance(&mut self, n: usize) -> (usize, bool) {
         self.cur.bounded_advance(n, self.lim())

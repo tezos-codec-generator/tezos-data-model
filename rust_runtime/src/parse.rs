@@ -323,7 +323,10 @@ pub mod hexstring {
 pub mod bytes {
     use super::hexstring::HexString;
 
+    #[derive(Clone, Copy)]
     pub struct ByteSlice<'a>(&'a [u8]);
+
+    #[derive(Clone)]
     pub struct OwnedBytes(Vec<u8>);
 
     impl<'a> From<&'a [u8]> for ByteSlice<'a> {
@@ -363,10 +366,13 @@ pub mod bytes {
         }
     }
 
-    /*
     impl<'a> ByteSlice<'a> {
         pub unsafe fn take(&self, len: usize) -> (&'a [u8], Self) {
             (&self.0[..len], Self(&self.0[len..]))
+        }
+
+        pub unsafe fn split(&self, len: usize) -> (Self, Self) {
+            (Self(&self.0[..len]), Self(&self.0[len..]))
         }
 
         pub unsafe fn pop(&self) -> (u8, Self) {
@@ -377,7 +383,6 @@ pub mod bytes {
             self.0.len()
         }
     }
-    */
 
     impl OwnedBytes {
         pub unsafe fn get_slice(&self, ix: usize, len: usize) -> &[u8] {
@@ -395,10 +400,10 @@ pub mod bytes {
 }
 
 pub mod byteparser {
-    use crate::internal::{BoundAwareMarker, ContextOffset, Marker};
+    use crate::internal::{BoundAwareMarker, ContextOffset, Marker, Stack};
     use crate::parse::errors::InternalErrorKind;
 
-    use super::bytes::OwnedBytes;
+    use super::bytes::{ByteSlice, OwnedBytes};
     use super::errors::ParseError;
     use std::convert::{TryFrom, TryInto};
     use std::ops::Deref;
@@ -660,6 +665,120 @@ pub mod byteparser {
                     buflen: self.buffer.len(),
                 })
             }
+        }
+    }
+
+    pub struct SliceParser<'a>(Vec<ByteSlice<'a>>);
+
+    impl<'a> SliceParser<'a> {
+        pub fn parse<T>(input: T) -> Self
+        where
+            ByteSlice<'a>: TryFrom<T>,
+            <T as TryInto<ByteSlice<'a>>>::Error: std::fmt::Display,
+        {
+            match ByteSlice::<'a>::try_from(input) {
+                Ok(slice) => {
+                    let stack = vec![slice];
+                    Self(stack)
+                }
+                Err(e) => panic!("SliceParser::parse: error encountered: {}", e),
+            }
+        }
+    }
+
+    impl<'a> Iterator for SliceParser<'a> {
+        type Item = u8;
+
+        fn next(&mut self) -> Option<Self::Item> {
+            match Stack::peek_mut(&mut self.0) {
+                None => None,
+                Some(frame) => {
+                    if frame.len() > 0 {
+                        unsafe {
+                            let (ret, temp) = frame.take(1);
+                            *frame = temp;
+                            debug_assert!(ret.len() == 1);
+                            Some(ret[0])
+                        }
+                    } else {
+                        None
+                    }
+                }
+            }
+        }
+    }
+
+    impl<'a> Parser for SliceParser<'a> {
+        fn len(&self) -> usize {
+            match self.0.peek() {
+                Some(bs) => bs.len(),
+                None => 0,
+            }
+        }
+
+        fn offset(&self) -> usize {
+            0
+        }
+
+        fn consume(&mut self, nbytes: usize) -> ParseResult<&[u8]> {
+            match Stack::peek_mut(&mut self.0) {
+                None => Err(ParseError::BufferOverflow {
+                    buflen: 0,
+                    requested: nbytes,
+                    offset: 0,
+                }),
+                Some(frame) => {
+                    if frame.len() >= nbytes {
+                        unsafe {
+                            let (ret, temp) = frame.take(nbytes);
+                            *frame = temp;
+                            Ok(ret)
+                        }
+                    } else {
+                        Err(ParseError::BufferOverflow {
+                            buflen: frame.len(),
+                            requested: nbytes,
+                            offset: 0,
+                        })
+                    }
+                }
+            }
+        }
+
+        fn set_fit(&mut self, n: usize) {
+            match Stack::peek_mut(&mut self.0) {
+                None if n == 0 => (),
+                None => panic!(
+                    "SliceParser::set_fit: Cannot reserve {} bytes of empty buffer",
+                    n
+                ),
+                Some(frame) => {
+                    if frame.len() >= n {
+                        unsafe {
+                            let (novel, rem) = frame.split(n);
+                            *frame = rem;
+                            self.0.push(novel);
+                        }
+                    } else {
+                        panic!(
+                            "Cannot set fit of {} bytes when current frame contains {} bytes",
+                            n,
+                            frame.len()
+                        );
+                    }
+                }
+            }
+        }
+
+        fn test_target(&mut self) -> bool {
+            match self.0.peek() {
+                None => false,
+                Some(frame) => frame.len() == 0,
+            }
+        }
+
+        fn enforce_target(&mut self) {
+            assert_eq!(self.0.pop().expect("No target to enforce!").len(), 0);
         }
     }
 
