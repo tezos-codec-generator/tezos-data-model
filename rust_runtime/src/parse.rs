@@ -1,11 +1,23 @@
+/// Possible errors encountered during creation or manipulation of
+/// Parser objects.
 pub mod errors {
     use std::{fmt::*, string::FromUtf8Error};
 
     use crate::bound::OutOfRange;
 
+    /// Enumerated type representing errors in conversion from hex-strings
+    /// into byte-buffers.
+    ///
+    ///
     #[derive(Debug, Clone)]
     pub enum ConvError<T> {
+        /// `ParityError` indicates the error scenerio in which the parity of the
+        /// length of the string we wish to interpret as a hex-encoded byte buffer
+        /// is not even, and therefore is malformed.
         ParityError(T),
+        /// `HexError` indicates the error scenario in which an aligned two-byte
+        /// substring of the string we are converting, is not a valid hexadecimal
+        /// encoding of an 8-bit word.
         HexError(T),
     }
 
@@ -16,12 +28,16 @@ pub mod errors {
                     write!(f, "input string has odd parity (expected even): '{}'", s)
                 }
                 Self::HexError(s) => {
-                    write!(f, "input string is not all hexadecimal: '{}'", s)
+                    write!(f, "input string contains non-hex two-byte aligned substring: '{}'", s)
                 }
             }
         }
     }
 
+    /// Enumerated type representing implementation-specific errors that occur
+    /// internally when parsing mostly independent of the validity of the request
+    /// being performed. These should never be encountered unless there is a bug
+    /// in the implementation of the Parser object itself.
     #[derive(Debug, Clone)]
     pub enum InternalErrorKind {
         ConsumeLengthMismatch { expected: usize, actual: usize },
@@ -34,21 +50,31 @@ pub mod errors {
                 InternalErrorKind::ConsumeLengthMismatch { expected, actual } => {
                     write!(
                         f,
-                        "consume({}) returned slice of length {}",
+                        "BUG: consume({}) returned slice of length {}",
                         expected, actual
                     )
                 }
                 InternalErrorKind::SliceCoerceFailure => {
-                    write!(f, "failed to coerce from byte-slice to fixed-length array")
+                    write!(f, "BUG: failed to coerce from byte-slice to fixed-length array")
                 }
             }
         }
     }
 
+    /// Enumerated type representing contextually invalid results obtained from otherwise
+    /// succesfully executed method calls to a Parser object. These typically indicate that
+    /// the actual byte content of the buffer differs from the byte content that is considered
+    /// valid in the context imposed by a particular parse method call or combination thereof.
     #[derive(Debug, Clone)]
     pub enum ExternalErrorKind {
+        /// Error scenario in which a coercion from `&[u8]` to `String` performed on the result
+        /// of a `consume` operation could not be performed for the specified reason (`FromUtf8Error`).
         UncoercableString(FromUtf8Error),
+        /// Error scenario in which an integral value parsed from the buffer happened to fall outside
+        /// of the valid range of a RangedInt type.
         IntRangeViolation(OutOfRange<i64>),
+        /// Error scenario in which a double-precision IEEE float parsed from the buffer happened to fall
+        /// outside of the valid range of a RangedFloat type.
         FloatRangeViolation(OutOfRange<f64>),
     }
 
@@ -74,19 +100,26 @@ pub mod errors {
 
     #[derive(Debug, Clone)]
     pub enum ParseError {
+        /// Internal error indicating a bug in the implementation
         InternalError(InternalErrorKind),
+        /// External error indicating a contextually invalid parse-result
         ExternalError(ExternalErrorKind),
+        /// Attempted consume call would violate the absolute or contextually
+        /// restricted bounds of the parse-buffer
         BufferOverflow {
             buflen: usize,
             offset: usize,
             requested: usize,
         },
+        /// Byte parsed could not be interpreted as a valid boolean
         InvalidBoolean(u8),
+        /// Byte parsed could not be interpreted as a valid discriminant for an enumerated type
         InvalidTagWord {
             expected: Vec<u8>,
             for_type: String,
             actual: u8,
         },
+        /// Supposedly self-terminating byte-sequence failed to termiante before reaching end of buffer
         NonTerminating(Vec<u8>),
     }
 
@@ -782,23 +815,40 @@ pub mod byteparser {
         }
     }
 
-    pub trait ToParser {
-        fn to_parser(self) -> ByteParser;
+    pub trait ToParser<P: Parser = ByteParser> {
+        fn to_parser(self) -> P;
     }
 
-    impl ToParser for ByteParser {
+    impl ToParser<ByteParser> for ByteParser {
         fn to_parser(self) -> Self {
             self
         }
     }
 
-    impl<T> ToParser for T
+    impl<'a> ToParser<SliceParser<'a>> for SliceParser<'a> {
+        fn to_parser(self) -> Self {
+            self
+        }
+    }
+
+    impl<T> ToParser<ByteParser> for T
     where
         OwnedBytes: TryFrom<T>,
         <T as TryInto<OwnedBytes>>::Error: std::fmt::Display,
     {
         fn to_parser(self) -> ByteParser {
             ByteParser::parse(self)
+        }
+    }
+
+
+    impl<'a, T> ToParser<SliceParser<'a>> for T
+    where
+        ByteSlice<'a>: TryFrom<T>,
+        <T as TryInto<ByteSlice<'a>>>::Error: std::fmt::Display,
+    {
+        fn to_parser(self) -> SliceParser<'a> {
+            SliceParser::parse(self)
         }
     }
 
