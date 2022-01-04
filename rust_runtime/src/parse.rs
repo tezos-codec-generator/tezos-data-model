@@ -1,14 +1,12 @@
 /// Possible errors encountered during creation or manipulation of
 /// Parser objects.
 pub mod errors {
-    use std::{fmt::*, string::FromUtf8Error};
+    use std::{convert::Infallible, fmt::*, string::FromUtf8Error};
 
     use crate::bound::OutOfRange;
 
     /// Enumerated type representing errors in conversion from hex-strings
     /// into byte-buffers.
-    ///
-    ///
     #[derive(Debug, Clone)]
     pub enum ConvError<T> {
         /// `ParityError` indicates the error scenerio in which the parity of the
@@ -28,7 +26,11 @@ pub mod errors {
                     write!(f, "input string has odd parity (expected even): '{}'", s)
                 }
                 Self::HexError(s) => {
-                    write!(f, "input string contains non-hex two-byte aligned substring: '{}'", s)
+                    write!(
+                        f,
+                        "input string contains non-hex two-byte aligned substring: '{}'",
+                        s
+                    )
                 }
             }
         }
@@ -55,7 +57,10 @@ pub mod errors {
                     )
                 }
                 InternalErrorKind::SliceCoerceFailure => {
-                    write!(f, "BUG: failed to coerce from byte-slice to fixed-length array")
+                    write!(
+                        f,
+                        "BUG: failed to coerce from byte-slice to fixed-length array"
+                    )
                 }
             }
         }
@@ -98,6 +103,8 @@ pub mod errors {
         }
     }
 
+    /// Enumerated type encapsulating all possible error conditions that can be raised by
+    /// operations that attempt to create perform operations on Parser objects.
     #[derive(Debug, Clone)]
     pub enum ParseError {
         /// Internal error indicating a bug in the implementation
@@ -165,6 +172,12 @@ pub mod errors {
             Self::ExternalError(ExternalErrorKind::UncoercableString(err))
         }
     }
+
+    impl From<Infallible> for ParseError {
+        fn from(_: Infallible) -> Self {
+            unreachable!()
+        }
+    }
 }
 
 pub mod hexstring {
@@ -172,6 +185,8 @@ pub mod hexstring {
     use crate::{builder::Builder, util::hex_of_bytes};
     use std::{borrow::Borrow, convert::TryFrom, iter::FromIterator, vec::IntoIter};
 
+    /// Newtype representing byte-arrays that are parsed from and displayed as
+    /// hexadecimally encoded `String` values.
     #[derive(PartialEq, Eq, PartialOrd, Ord, Debug, Clone)]
     pub struct HexString {
         words: Vec<u8>,
@@ -259,6 +274,8 @@ pub mod hexstring {
         }
     }
 
+    /// Macro for converting a string literal into a HexString, which panics if the conversion
+    /// cannot be performed due to invalidity of the source string.
     #[macro_export]
     macro_rules! hex {
         ($s : expr) => {
@@ -329,18 +346,22 @@ pub mod hexstring {
     }
 
     impl HexString {
+        /// Borrows the contents of the HexString as a byte-slice
         pub fn get_words(&self) -> &[u8] {
             &self.words
         }
 
+        /// Returns an iterator over the individual bytes in the HexString
         pub fn iter(&self) -> std::slice::Iter<u8> {
             self.words.iter()
         }
 
+        /// Destructures the HexString wrapper into the actual vector it encloses
         pub fn to_vec(self) -> Vec<u8> {
             self.words
         }
 
+        /// Returns a hexidecimally encoded `String` matching the byte sequence of a borrowed HexString
         pub fn as_hex(&self) -> String {
             hex_of_bytes(&self.words)
         }
@@ -356,9 +377,11 @@ pub mod hexstring {
 pub mod bytes {
     use super::hexstring::HexString;
 
+    /// Newtype around an explicitly lifetime-annotated immutable slice of type `&[u8]`
     #[derive(Clone, Copy)]
     pub struct ByteSlice<'a>(&'a [u8]);
 
+    /// Newtype around a vector of type `Vec<u8>`
     #[derive(Clone)]
     pub struct OwnedBytes(Vec<u8>);
 
@@ -400,32 +423,58 @@ pub mod bytes {
     }
 
     impl<'a> ByteSlice<'a> {
+        /// Extracts the first `N` indices of a `ByteSlice` and return them
+        /// as a slice, along with the remainder as a `ByteSlice`
+        ///
+        /// This function is only `unsafe` because it does not itself perrform
+        /// any slice-length bound-checking and will therefore panic as normal
+        /// when the number of indices to take exceeds the number of indices
+        /// in the slice itself.
         pub unsafe fn take(&self, len: usize) -> (&'a [u8], Self) {
             (&self.0[..len], Self(&self.0[len..]))
         }
 
+        /// Equivalent to `ByteSlice::take`, except the first element of the
+        /// tuple is itself a `ByteSlice`, rather than a raw `&'a [u8]`.
         pub unsafe fn split(&self, len: usize) -> (Self, Self) {
             (Self(&self.0[..len]), Self(&self.0[len..]))
         }
 
+        /// Special version of `ByteSlice::take` that is optimized for only taking
+        /// one byte (at index 0). Other than returning a Copied `u8` rather than
+        /// a singleton slice of type `&'a [u8]`, `self.pop()` is semantically equivalent
+        /// to `self.take(1)`
         pub unsafe fn pop(&self) -> (u8, Self) {
             (self.0[0], Self(&self.0[1..]))
         }
 
+        /// Returns the number of bytes in a ByteSlice.
         pub fn len(&self) -> usize {
             self.0.len()
         }
     }
 
     impl OwnedBytes {
+        /// Borrows a range of bytes starting at index `ix`, of length `len`.
+        ///
+        /// This function is marked as `unsafe` to ensure that the caller is certain
+        /// that the attempted slice access will not violate the bounds of the vector
+        /// wrapped inside the receiver. If this guarantee is not made, this function
+        /// will panic as usual, but does not itself perform any bounds validation beyond
+        /// what Rust itself performs when attempting to borrow a range of indices of
+        /// a vector as a slice.
         pub unsafe fn get_slice(&self, ix: usize, len: usize) -> &[u8] {
             &self.0[ix..ix + len]
         }
 
+        /// Specialized variant of `get_slice` optimized for the case in which
+        /// only one byte is desired, returning an owned byte (as `u8`) rather than
+        /// a slice of bytes.
         pub unsafe fn get_word(&self, ix: usize) -> u8 {
             self.0[ix]
         }
 
+        /// Returns the length of the vector enclosed by an OwnedBytes value.
         pub fn len(&self) -> usize {
             self.0.len()
         }
@@ -638,17 +687,20 @@ pub mod byteparser {
     }
 
     impl ByteParser {
-        pub fn parse<T>(input: T) -> Self
+        /// Convert any type that can be potentially coerced into an `OwnedBytes` value into
+        /// a ByteParser over said buffer, with an empty stack of context windows and an offset
+        /// starting at index `0`.
+        pub fn parse<T>(input: T) -> ParseResult<Self>
         where
             OwnedBytes: TryFrom<T>,
-            <T as TryInto<OwnedBytes>>::Error: std::fmt::Display,
+            <T as TryInto<OwnedBytes>>::Error: Into<ParseError>,
         {
             match OwnedBytes::try_from(input) {
                 Ok(buffer) => {
                     let offset = ContextOffset::new(buffer.len());
-                    Self { buffer, offset }
+                    Ok(Self { buffer, offset })
                 }
-                Err(e) => panic!("ByteParser::parse: error encountered: {}", e),
+                Err(err) => Err(err.into()),
             }
         }
     }
@@ -704,17 +756,19 @@ pub mod byteparser {
     pub struct SliceParser<'a>(Vec<ByteSlice<'a>>);
 
     impl<'a> SliceParser<'a> {
-        pub fn parse<T>(input: T) -> Self
+        /// Convert any type that can be potentially coerced into a `ByteSlice` value into
+        /// a SliceParser over said slice.
+        ///
+        /// If any error is encountered during conversion into the `ByteSlice`, this function
+        /// will panic with that error as its displayed exception context.
+        pub fn parse<T>(input: T) -> ParseResult<Self>
         where
             ByteSlice<'a>: TryFrom<T>,
-            <T as TryInto<ByteSlice<'a>>>::Error: std::fmt::Display,
+            <T as TryInto<ByteSlice<'a>>>::Error: Into<ParseError>,
         {
             match ByteSlice::<'a>::try_from(input) {
-                Ok(slice) => {
-                    let stack = vec![slice];
-                    Self(stack)
-                }
-                Err(e) => panic!("SliceParser::parse: error encountered: {}", e),
+                Ok(slice) => Ok(Self(vec![slice])),
+                Err(err) => Err(err.into())
             }
         }
     }
@@ -779,7 +833,7 @@ pub mod byteparser {
         }
 
         fn set_fit(&mut self, n: usize) {
-            match Stack::peek_mut(&mut self.0) {
+            match self.0.peek_mut() {
                 None if n == 0 => (),
                 None => panic!(
                     "SliceParser::set_fit: Cannot reserve {} bytes of empty buffer",
@@ -816,50 +870,57 @@ pub mod byteparser {
     }
 
     pub trait ToParser<P: Parser = ByteParser> {
-        fn to_parser(self) -> P;
+        fn into_parser(self) -> ParseResult<P>;
+
+        fn to_parser(self) -> P
+        where
+            Self: Sized,
+        {
+            self.into_parser()
+                .expect("ToParser::to_parser: encountered error in self.into_parser")
+        }
     }
 
     impl ToParser<ByteParser> for ByteParser {
-        fn to_parser(self) -> Self {
-            self
+        fn into_parser(self) -> ParseResult<Self> {
+            Ok(self)
         }
     }
 
     impl<'a> ToParser<SliceParser<'a>> for SliceParser<'a> {
-        fn to_parser(self) -> Self {
-            self
+        fn into_parser(self) -> ParseResult<Self> {
+            Ok(self)
         }
     }
 
     impl<T> ToParser<ByteParser> for T
     where
         OwnedBytes: TryFrom<T>,
-        <T as TryInto<OwnedBytes>>::Error: std::fmt::Display,
+        <T as TryInto<OwnedBytes>>::Error: std::fmt::Display + Into<ParseError>,
     {
-        fn to_parser(self) -> ByteParser {
+        fn into_parser(self) -> ParseResult<ByteParser> {
             ByteParser::parse(self)
         }
     }
 
-
     impl<'a, T> ToParser<SliceParser<'a>> for T
     where
         ByteSlice<'a>: TryFrom<T>,
-        <T as TryInto<ByteSlice<'a>>>::Error: std::fmt::Display,
+        <T as TryInto<ByteSlice<'a>>>::Error: Into<ParseError>,
     {
-        fn to_parser(self) -> SliceParser<'a> {
+        fn into_parser(self) -> ParseResult<SliceParser<'a>> {
             SliceParser::parse(self)
         }
     }
 
     impl<const N: usize> ToParser for &[u8; N] {
-        fn to_parser(self) -> ByteParser {
+        fn into_parser(self) -> ParseResult<ByteParser> {
             ByteParser::parse(self.to_vec())
         }
     }
 
     impl ToParser for String {
-        fn to_parser(self) -> ByteParser {
+        fn into_parser(self) -> ParseResult<ByteParser> {
             ByteParser::parse(self.deref())
         }
     }

@@ -139,24 +139,37 @@ impl Display for FrameError {
 }
 
 pub(crate) trait Stack {
+    /// Type of the values that are pushed onto the stack.
     type Item: Copy;
 
+    /// Return the topmost value of the Stack, or `None` if it is empty
     fn peek(&self) -> Option<Self::Item>;
 
+    /// Return the topmost value of the Stack, or `default` if it is empty
     fn peek_or(&self, default: Self::Item) -> Self::Item {
         self.peek().unwrap_or(default)
     }
 
+    /// Return a mutable reference to the topmost value of the stack without otherwise
+    /// mutating the stack itself.
     fn peek_mut(&mut self) -> Option<&mut Self::Item>;
 
+    /// Like `peek`, but the topmost value of the stack is removed if it exists.
     fn pop(&mut self) -> Option<Self::Item>;
 
+    /// Like `peek_or`, but the value returned is removed from the stack if it was not empty.
     fn pop_or(&mut self, default: Self::Item) -> Self::Item {
         self.pop().unwrap_or(default)
     }
 
+    /// Push `item` onto the top of the stack.
     fn push(&mut self, item: Self::Item);
 
+    /// Given a closure that returns `None` in the case of a valid value to push,
+    /// and `Some(err)` if an error occured, pre-validate and push `item` onto the
+    /// Stack.
+    ///
+    /// If `Err(_)` is returned, the mutably borrowed receiver should be unmodified.
     fn push_validated<Error, F: Fn(Option<Self::Item>, Self::Item) -> Option<Error>>(
         &mut self,
         item: Self::Item,
@@ -189,6 +202,7 @@ impl<T: Copy> Stack for Vec<T> {
     }
 }
 
+/// Newtype for a heap-allocated stack of context-frames.
 struct FrameStack(Vec<usize>);
 
 impl Deref for FrameStack {
@@ -205,6 +219,13 @@ impl DerefMut for FrameStack {
     }
 }
 
+/// Invariant-checker for the implicit condition that all new context-frames must
+/// be able to fully nest inside of all previously existing context frames, which
+/// by induction only requires that they fit in the most recently created frame.
+///
+/// Returns `None` if the nesting invariant is met (which happens automatically if there were no
+/// extant context-frames to be required to fit within), and otherwise returns `Some(err)` where
+/// `err` is the `FrameError` value indicating the reason for the invalidity.
 pub fn validate_nesting(innermost: Option<usize>, novel: usize) -> Option<FrameError> {
     if innermost? >= novel {
         None
@@ -253,6 +274,11 @@ pub struct ContextOffset {
 }
 
 impl ContextOffset {
+    /// Attempts to create a new context-frame of the specified window-size,
+    /// measured from the current value of the offset index. Will fail if the
+    /// novel context-frame exceeds the absolute limit set at time of creation,
+    /// or if it would violate the nesting invariant of the innermost context-frame
+    /// of the stack, assuming it is non-empty.
     pub fn set_fit(&mut self, winsize: usize) {
         let cur: usize = self.get();
         let new_tgt: usize = cur + winsize;
@@ -282,6 +308,8 @@ impl ContextOffset {
         }
     }
 
+    /// Pops the innermost context-frame and panics if it was not exactly reached by the
+    /// offset indicator at the time of invocation (including if there was no frame to pop in the first place).
     pub fn enforce_target(&mut self) {
         let cur: usize = self.get();
 
