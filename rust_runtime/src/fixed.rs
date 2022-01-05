@@ -1,7 +1,29 @@
+#[derive(Clone, Copy, Debug)]
+pub struct LengthMismatchError {
+    expected: usize,
+    actual: usize,
+}
+
+impl std::fmt::Display for LengthMismatchError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{}-byte value cannot be coerced into fixed {}-byte type",
+            &self.actual, &self.expected
+        )
+    }
+}
+
+impl LengthMismatchError {
+    pub(crate) fn new(expected: usize, actual: usize) -> Self {
+        Self { expected, actual }
+    }
+}
+
 pub mod bytestring {
-    use crate::conv::{Decode, Encode, len};
-    use crate::Parser;
+    use crate::conv::{len, Decode, Encode};
     use crate::parse::byteparser::ParseResult;
+    use crate::Parser;
 
     #[derive(PartialEq, Eq, PartialOrd, Ord, Debug)]
     pub struct ByteString<const N: usize>([u8; N]);
@@ -31,7 +53,10 @@ pub mod bytestring {
     #[cfg(test)]
     mod tests {
         use super::*;
-        use crate::{builder::{Builder, owned::OwnedBuilder}, hex};
+        use crate::{
+            builder::{owned::OwnedBuilder, Builder},
+            hex,
+        };
 
         #[test]
         fn bytestring_hex() {
@@ -45,7 +70,10 @@ pub mod bytestring {
         fn bytestring_ascii() {
             let b = ByteString::<12>::decode(b"hello world!");
             assert_eq!(b, ByteString::from(b"hello world!"));
-            assert_eq!(b.encode::<OwnedBuilder>().into_bin().unwrap(), "hello world!");
+            assert_eq!(
+                b.encode::<OwnedBuilder>().into_bin().unwrap(),
+                "hello world!"
+            );
         }
     }
 }
@@ -53,8 +81,10 @@ pub mod bytestring {
 pub mod charstring {
     use std::convert::TryInto;
 
-    use crate::conv::{Decode, Encode, len};
-    use crate::parse::byteparser::{Parser, ParseResult};
+    use crate::conv::{len, Decode, Encode};
+    use crate::parse::byteparser::{ParseResult, Parser};
+
+    use super::LengthMismatchError;
 
     #[derive(PartialEq, Eq, PartialOrd, Ord, Debug)]
     pub struct CharString<const N: usize> {
@@ -65,17 +95,17 @@ pub mod charstring {
         const LEN: usize = N;
     }
 
-    impl<const N: usize> From<&str> for CharString<N> {
-        fn from(x: &str) -> Self {
-            let n = x.len();
+    impl<const N: usize> std::convert::TryFrom<&str> for CharString<N> {
+        type Error = LengthMismatchError;
+
+        fn try_from(value: &str) -> Result<Self, Self::Error> {
+            let n: usize = value.len();
             if N != n {
-                panic!(
-                    "Cannot convert {}-byte string into CharString<{}>: `{}`",
-                    n, N, x
-                );
-            }
-            Self {
-                contents: x.as_bytes().try_into().unwrap(),
+                Err(LengthMismatchError::new(N, n))
+            } else {
+                Ok(Self {
+                    contents: value.as_bytes().try_into().unwrap(),
+                })
             }
         }
     }
@@ -107,14 +137,14 @@ pub mod charstring {
     }
     #[cfg(test)]
     mod tests {
-        use crate::{Builder, StrictBuilder, builder::owned::OwnedBuilder};
-        use std::borrow::Borrow;
+        use crate::{builder::owned::OwnedBuilder, Builder, StrictBuilder};
+        use std::{borrow::Borrow, convert::TryFrom};
 
         use super::*;
 
         fn check_str<const N: usize>(case: &'static str) {
             let res = CharString::<N>::decode(case);
-            assert_eq!(res, CharString::from(case));
+            assert_eq!(res, CharString::try_from(case).unwrap());
             assert_eq!(res.encode::<OwnedBuilder>().into_bin().unwrap(), case);
         }
 
