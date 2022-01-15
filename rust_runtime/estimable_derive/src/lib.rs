@@ -89,7 +89,7 @@ fn impl_estimable(ast: &syn::DeriveInput) -> TokenStream {
                                             _ => None,
                                         }
                                     }
-                                    f( #( #ty::KNOWN ),* )
+                                    f( #( <#ty>::KNOWN ),* )
                                 };
 
                                 fn unknown(&self) -> usize {
