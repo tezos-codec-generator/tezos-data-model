@@ -94,7 +94,7 @@ impl<T: Encode> Encode for Option<T> {
 
 impl<T: Decode> Decode for Option<T> {
     fn parse<P: Parser>(p: &mut P) -> ParseResult<Self> {
-        match p.get_tagword::<Option<T>>(&[0x00, 0xff])? {
+        match p.get_tagword::<Option<T>, u8>(&[0x00, 0xff])? {
             0xff => Ok(Some(T::parse(p)?)),
             0x00 => Ok(None),
             _ => unreachable!(),

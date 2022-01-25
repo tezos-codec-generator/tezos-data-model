@@ -2,6 +2,7 @@ mod bound;
 pub mod builder;
 pub mod conv;
 pub mod dynamic;
+pub mod adt;
 pub mod fixed;
 pub mod float;
 pub mod int;
@@ -22,6 +23,7 @@ pub use crate::fixed::{bytestring::ByteString, charstring::CharString};
 pub use crate::float::RangedFloat;
 pub use crate::int::{i31, u30, RangedInt};
 pub use crate::parse::{
+    errors::ParseError,
     byteparser::{ByteParser, ParseResult, Parser, ToParser},
     hexstring::HexString,
 };

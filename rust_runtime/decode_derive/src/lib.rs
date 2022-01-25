@@ -15,20 +15,14 @@ pub fn decode_derive(input: TokenStream) -> TokenStream {
 fn impl_decode(ast: &syn::DeriveInput) -> TokenStream {
     let name = &ast.ident;
     let gen = match &ast.data {
-        syn::Data::Enum(syn::DataEnum { variants, .. }) => {
-            let mut vars = variants.iter();
-            let vname = vars.by_ref().map(|x| &x.ident);
-            let vfields = vars.by_ref().map(|x| &x.fields);
-            let vdisc = vars.by_ref().map(|x| Some(&x.discriminant.as_ref()?.1));
-            unimplemented!();
-        }
+        syn::Data::Enum(_) => unimplemented!(),
         syn::Data::Union(_) => unimplemented!(),
         syn::Data::Struct(syn::DataStruct { fields, .. }) => match fields {
             syn::Fields::Unit => {
                 quote! {
                     impl Decode for #name {
                         fn parse<P: Parser>(_: &mut P) -> ParseResult<Self> {
-                            Ok(Self())
+                            Ok(Self)
                         }
                     }
                 }

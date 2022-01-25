@@ -3,7 +3,7 @@
 pub mod errors {
     use std::{convert::Infallible, fmt::*, string::FromUtf8Error};
 
-    use crate::bound::OutOfRange;
+    use crate::{bound::OutOfRange};
 
     /// Enumerated type representing errors in conversion from hex-strings
     /// into byte-buffers.
@@ -44,6 +44,7 @@ pub mod errors {
     pub enum InternalErrorKind {
         ConsumeLengthMismatch { expected: usize, actual: usize },
         SliceCoerceFailure,
+        NoValidTags,
     }
 
     impl Display for InternalErrorKind {
@@ -60,6 +61,12 @@ pub mod errors {
                     write!(
                         f,
                         "BUG: failed to coerce from byte-slice to fixed-length array"
+                    )
+                }
+                InternalErrorKind::NoValidTags => {
+                    write!(
+                        f,
+                        "BUG: cannot parse discriminant of enum with no specified valid values"
                     )
                 }
             }
@@ -103,6 +110,105 @@ pub mod errors {
         }
     }
 
+    pub trait TagType
+    where
+        Self: Debug + Display + Clone + Copy + PartialEq + Eq + LowerHex,
+    {
+        fn promote(val: TagError<Self>) -> TagErrorKind;
+    }
+
+    impl TagType for u8 {
+        fn promote(val: TagError<Self>) -> TagErrorKind {
+            TagErrorKind::TagU8(val)
+        }
+    }
+
+    impl TagType for u16 {
+        fn promote(val: TagError<Self>) -> TagErrorKind {
+            TagErrorKind::TagU16(val)
+        }
+    }
+    impl TagType for u32 {
+        fn promote(val: TagError<Self>) -> TagErrorKind {
+            TagErrorKind::TagU30(val)
+        }
+
+    }
+
+    #[derive(Debug, Clone)]
+    pub struct TagError<T>
+    where
+        T: TagType,
+    {
+        actual: T,
+        for_type: Option<String>,
+        expected: Option<Vec<T>>,
+    }
+
+    impl<T> TagError<T>
+    where
+        T: Into<TagError<T>> + TagType,
+    {
+        pub fn new(actual: T, for_type: Option<String>, expected: Option<Vec<T>>) -> Self {
+            let mut ret: Self = actual.into();
+            if let Some(for_type) = for_type {
+                (&mut ret.for_type).replace(for_type);
+            }
+            if let Some(expected) = expected {
+                (&mut ret.expected).replace(expected);
+            }
+            ret
+        }
+    }
+
+    impl<T: TagType> From<T> for TagError<T> {
+        fn from(actual: T) -> Self {
+            Self {
+                actual,
+                for_type: None,
+                expected: None,
+            }
+        }
+    }
+
+    impl<T> Display for TagError<T>
+    where
+        T: TagType,
+    {
+        fn fmt(&self, f: &mut Formatter<'_>) -> Result {
+            write!(
+                f,
+                "unexpected discriminant {:#0width$x} for enum-type {}",
+                &self.actual,
+                self.for_type.as_ref().unwrap_or(&String::from("<unknown>")),
+                width = std::mem::size_of::<T>() * 2
+            )
+        }
+    }
+
+    #[derive(Debug, Clone)]
+    pub enum TagErrorKind {
+        TagU8(TagError<u8>),
+        TagU16(TagError<u16>),
+        TagU30(TagError<u32>),
+    }
+
+    impl Display for TagErrorKind {
+        fn fmt(&self, f: &mut Formatter<'_>) -> Result {
+            match self {
+                TagErrorKind::TagU8(x) => std::fmt::Display::fmt(x, f),
+                TagErrorKind::TagU16(x) => std::fmt::Display::fmt(x, f),
+                TagErrorKind::TagU30(x) => std::fmt::Display::fmt(x, f),
+            }
+        }
+    }
+
+    impl<T: TagType> From<TagError<T>> for TagErrorKind {
+        fn from(val: TagError<T>) -> Self {
+            TagType::promote(val)
+        }
+    }
+
     /// Enumerated type encapsulating all possible error conditions that can be raised by
     /// operations that attempt to create perform operations on Parser objects.
     #[derive(Debug, Clone)]
@@ -121,11 +227,7 @@ pub mod errors {
         /// Byte parsed could not be interpreted as a valid boolean
         InvalidBoolean(u8),
         /// Byte parsed could not be interpreted as a valid discriminant for an enumerated type
-        InvalidTagWord {
-            expected: Vec<u8>,
-            for_type: String,
-            actual: u8,
-        },
+        InvalidTag(TagErrorKind),
         /// Supposedly self-terminating byte-sequence failed to termiante before reaching end of buffer
         NonTerminating(Vec<u8>),
     }
@@ -149,16 +251,8 @@ pub mod errors {
                 ParseError::InvalidBoolean(byte) => {
                     write!(f, "expected boolean := (0xff | 0x00), got 0x{:02x}", byte)
                 }
-                ParseError::InvalidTagWord {
-                    expected,
-                    for_type,
-                    actual,
-                } => {
-                    write!(
-                        f,
-                        "discriminant for type {} must be one of `0x{:02x?}`, got 0x{:02x}",
-                        for_type, expected, actual
-                    )
+                ParseError::InvalidTag(err) => {
+                    write!(f, "invalid tag: {}", err)
                 }
                 ParseError::NonTerminating(buf) => {
                     write!(f, "self-terminating codec cut off (end-of-window encountered before terminating condition met): `{}`", crate::util::hex_of_bytes(buf))
@@ -486,7 +580,7 @@ pub mod byteparser {
     use crate::parse::errors::InternalErrorKind;
 
     use super::bytes::{ByteSlice, OwnedBytes};
-    use super::errors::ParseError;
+    use super::errors::{ParseError, TagError};
     use std::convert::{TryFrom, TryInto};
     use std::ops::Deref;
 
@@ -634,24 +728,26 @@ pub mod byteparser {
             }
         }
 
-        fn get_tagword<T>(&mut self, valid: &[u8]) -> ParseResult<u8> {
-            match self.next() {
-                Some(byte) => {
-                    if valid.contains(&byte) {
-                        Ok(byte)
-                    } else {
-                        Err(ParseError::InvalidTagWord {
-                            expected: valid.to_vec(),
-                            actual: byte,
-                            for_type: std::any::type_name::<T>().to_owned(),
-                        })
-                    }
-                }
-                None => Err(ParseError::BufferOverflow {
-                    buflen: self.len(),
-                    requested: 1,
-                    offset: self.offset(),
-                }),
+        fn get_tagword<T, U>(&mut self, valid: &[U]) -> ParseResult<U>
+        where
+            U: super::errors::TagType + crate::conv::Decode,
+            Self: Sized,
+        {
+            if let [] = valid {
+                return Err(ParseError::InternalError(InternalErrorKind::NoValidTags));
+            }
+            let actual: U = crate::conv::Decode::parse(self)?;
+            if valid.contains(&actual) {
+                Ok(actual)
+            } else {
+                Err(ParseError::InvalidTag(
+                    TagError::new(
+                        actual,
+                        Some(std::any::type_name::<T>().to_owned()),
+                        Some(valid.to_vec()),
+                    )
+                    .into(),
+                ))
             }
         }
 
@@ -768,7 +864,7 @@ pub mod byteparser {
         {
             match ByteSlice::<'a>::try_from(input) {
                 Ok(slice) => Ok(Self(vec![slice])),
-                Err(err) => Err(err.into())
+                Err(err) => Err(err.into()),
             }
         }
     }

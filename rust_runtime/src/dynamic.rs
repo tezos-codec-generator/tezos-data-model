@@ -6,6 +6,12 @@ pub struct Dynamic<S, T> {
     _phantom: std::marker::PhantomData<S>,
 }
 
+impl<S, T> Dynamic<S, T> {
+    pub fn wrap(contents: T) -> Self {
+        Self { contents, _phantom: std::marker::PhantomData }
+    }
+}
+
 impl<S: FixedLength, T: Estimable> Estimable for Dynamic<S, T> {
     const KNOWN: Option<usize> = {
         const fn f(x: Option<usize>, y: Option<usize>) -> Option<usize> {
