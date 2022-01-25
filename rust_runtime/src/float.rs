@@ -6,6 +6,15 @@ use crate::Parser;
 use std::convert::TryFrom;
 use std::fmt::Debug;
 
+#[macro_export]
+macro_rules! ranged_float {
+    ( $x:expr ) => {
+        RangedFloat { val: $x }
+    };
+    ( $min:expr , $max:expr ) => {
+        RangedFloat<{ const MIN: u64 = unsafe { std::mem::transmute::<f64,u64>($min)} ; MIN }, { const MAX: u64 = unsafe { std::mem::transmute::<f64,u64>($max) }; MAX }>
+    };
+}
 
 #[derive(PartialEq, PartialOrd, Debug, Clone, Copy)]
 pub struct RangedFloat<const MIN: u64, const MAX: u64> {
@@ -36,17 +45,26 @@ impl<const MIN: u64, const MAX: u64> TryFrom<f64> for RangedFloat<MIN, MAX> {
     }
 }
 
-pub fn get_bounds<const MIN: u64, const MAX: u64>() -> (f64, f64) {
-    (f64::from_bits(MIN), f64::from_bits(MAX))
+pub const fn get_bounds<const MIN: u64, const MAX: u64>() -> (f64, f64) {
+    unsafe {
+        (std::mem::transmute(MIN), std::mem::transmute(MAX))
+    }
 }
 
 impl<const MIN: u64, const MAX: u64> RangedFloat<MIN, MAX> {
     fn validate_bounds() -> (f64, f64) {
-        let (min, max) = get_bounds::<MIN, MAX>();
-        if !(min.is_normal() && max.is_normal() && min <= max) {
-            panic!("RangedFloat<{},{}>: generic bounds are incoherent!", min, max)
-        } else {
-            (min, max)
+        let (min, max) : (f64, f64) = get_bounds::<MIN, MAX>();
+        match (min.classify(), max.classify()) {
+            (std::num::FpCategory::Nan, _) | (_, std::num::FpCategory::Nan) => {
+                panic!("RangedFloat<{}, {}>: bounds cannot be NaN!", min, max)
+            }
+            (std::num::FpCategory::Infinite, _) | (_, std::num::FpCategory::Infinite) => {
+                panic!("RangedFloat<{}, {}>: bounds cannot be infinite!", min, max)
+            }
+            _ if min > max => {
+                panic!("RangedFloat<{}, {}>: {{ X | MIN <= X <= MAX }} is the empty set!", min, max)
+            }
+            _ => (min, max)
         }
     }
 
@@ -120,7 +138,6 @@ mod tests {
     }
 
     #[test]
-    #[test]
     fn f64_encode_decode() {
         const F64_CASES: [(f64, &'static str); 4] = [
             (0.0_f64, "0000000000000000"),
@@ -130,4 +147,16 @@ mod tests {
         ];
         encode_decode(F64_CASES)
     }
+
+    #[test]
+    fn unit_encode_decode() {
+        const UNIT_CASES: [(ranged_float!(0.0, 1.0), &'static str); 4] = [
+            (ranged_float!(0.0), "0000000000000000"),
+            (ranged_float!(1.0), "3ff0000000000000"),
+            (ranged_float!(std::f64::consts::FRAC_1_PI), "3fd45f306dc9c883"),
+            (ranged_float!(std::f64::consts::LN_2), "3fe62e42fefa39ef"),
+        ];
+        encode_decode(UNIT_CASES)
+    }
+
 }
