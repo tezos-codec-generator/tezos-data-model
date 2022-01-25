@@ -1,6 +1,4 @@
-use std::{fmt::{Debug, Display}};
-
-use crate::parse::errors::{ParseError, ExternalErrorKind};
+use std::fmt::{Debug, Display};
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum OutOfRange<Ext: Copy> {
@@ -47,17 +45,5 @@ impl<Ext: Display + Copy> Display for OutOfRange<Ext> {
                 val, max
             ),
         }
-    }
-}
-
-impl Into<ParseError> for OutOfRange<i64> {
-    fn into(self) -> ParseError {
-        ParseError::ExternalError(ExternalErrorKind::IntRangeViolation(self))
-    }
-}
-
-impl Into<ParseError> for OutOfRange<f64> {
-    fn into(self) -> ParseError {
-        ParseError::ExternalError(ExternalErrorKind::FloatRangeViolation(self))
     }
 }

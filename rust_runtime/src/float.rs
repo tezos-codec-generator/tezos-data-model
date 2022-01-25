@@ -1,8 +1,7 @@
 use crate::bound::OutOfRange;
 use crate::conv::len::FixedLength;
 use crate::conv::{Decode, Encode};
-use crate::parse::byteparser::ParseResult;
-use crate::Parser;
+use crate::parse::byteparser::{ParseResult, Parser};
 use std::convert::TryFrom;
 use std::fmt::Debug;
 
@@ -12,7 +11,7 @@ macro_rules! ranged_float {
         RangedFloat { val: $x }
     };
     ( $min:expr , $max:expr ) => {
-        RangedFloat<{ const MIN: u64 = unsafe { std::mem::transmute::<f64,u64>($min)} ; MIN }, { const MAX: u64 = unsafe { std::mem::transmute::<f64,u64>($max) }; MAX }>
+        RangedFloat<{ unsafe { std::mem::transmute::<f64,u64>($min)} }, { unsafe { std::mem::transmute::<f64,u64>($max) } }>
     };
 }
 
@@ -46,14 +45,12 @@ impl<const MIN: u64, const MAX: u64> TryFrom<f64> for RangedFloat<MIN, MAX> {
 }
 
 pub const fn get_bounds<const MIN: u64, const MAX: u64>() -> (f64, f64) {
-    unsafe {
-        (std::mem::transmute(MIN), std::mem::transmute(MAX))
-    }
+    unsafe { (std::mem::transmute(MIN), std::mem::transmute(MAX)) }
 }
 
 impl<const MIN: u64, const MAX: u64> RangedFloat<MIN, MAX> {
     fn validate_bounds() -> (f64, f64) {
-        let (min, max) : (f64, f64) = get_bounds::<MIN, MAX>();
+        let (min, max): (f64, f64) = get_bounds::<MIN, MAX>();
         match (min.classify(), max.classify()) {
             (std::num::FpCategory::Nan, _) | (_, std::num::FpCategory::Nan) => {
                 panic!("RangedFloat<{}, {}>: bounds cannot be NaN!", min, max)
@@ -61,10 +58,15 @@ impl<const MIN: u64, const MAX: u64> RangedFloat<MIN, MAX> {
             (std::num::FpCategory::Infinite, _) | (_, std::num::FpCategory::Infinite) => {
                 panic!("RangedFloat<{}, {}>: bounds cannot be infinite!", min, max)
             }
-            _ if min > max => {
-                panic!("RangedFloat<{}, {}>: {{ X | MIN <= X <= MAX }} is the empty set!", min, max)
+            _ => {
+                if min > max {
+                    panic!(
+                        "RangedFloat<{min}, {max}>: {{ x | {min} <= x <= {max} }} is the empty set!",
+                        min = min, max = max
+                    )
+                }
+                (min, max)
             }
-            _ => (min, max)
         }
     }
 
@@ -113,10 +115,7 @@ impl<const MIN: u64, const MAX: u64> Decode for RangedFloat<MIN, MAX> {
     fn parse<P: Parser>(p: &mut P) -> ParseResult<Self> {
         let raw = f64::parse(p)?;
         let (min, max) = Self::validate_bounds();
-        match OutOfRange::<f64>::restrict(raw, min, max) {
-            Ok(val) => Ok(Self::new(val)),
-            Err(oor) => Err(oor.into()),
-        }
+        Ok(Self::new(OutOfRange::<f64>::restrict(raw, min, max)?))
     }
 }
 
@@ -153,10 +152,12 @@ mod tests {
         const UNIT_CASES: [(ranged_float!(0.0, 1.0), &'static str); 4] = [
             (ranged_float!(0.0), "0000000000000000"),
             (ranged_float!(1.0), "3ff0000000000000"),
-            (ranged_float!(std::f64::consts::FRAC_1_PI), "3fd45f306dc9c883"),
+            (
+                ranged_float!(std::f64::consts::FRAC_1_PI),
+                "3fd45f306dc9c883",
+            ),
             (ranged_float!(std::f64::consts::LN_2), "3fe62e42fefa39ef"),
         ];
         encode_decode(UNIT_CASES)
     }
-
 }
