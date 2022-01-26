@@ -23,7 +23,7 @@ pub use crate::fixed::{bytestring::ByteString, charstring::CharString};
 pub use crate::float::RangedFloat;
 pub use crate::int::{i31, u30, RangedInt};
 pub use crate::parse::{
-    errors::ParseError,
+    error::ParseError,
     byteparser::{ByteParser, ParseResult, Parser, ToParser},
     hexstring::HexString,
 };
