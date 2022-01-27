@@ -37,15 +37,29 @@ macro_rules! cstyle {
 }
 
 #[macro_export]
+macro_rules! structify {
+    ( $m:meta, $tname:ident, ) => {
+        #[$m]
+        pub struct $tname;
+    };
+    ( $m:meta, $tname:ident, ( $( $v:vis $i:ty ),* )) => {
+        #[$m]
+        pub struct $tname( $( $v $i),* );
+    };
+    ( $m:meta, $tname:ident, { $( $v:vis $x:ident : $y:ty ),* }) => {
+        #[$m]
+        pub struct $tname { $( $v $x : $y ),* } }
+}
+
+#[macro_export]
 macro_rules! data {
-    { $name:ident, $backer:ident, { $( $disc:expr => $vname:ident $( = $vspec:tt )? $( > $delim:tt )? ),+ } } => {
+    { $name:ident, $backer:ident, { $( $disc:expr => $vname:ident $($vspec:tt)? ),+ } } => {
         pub mod subtypes {
             #![allow(non_camel_case_types)]
             use super::*;
             use $crate::FixedLength;
             $(
-                #[derive(Encode,Decode,Estimable,Debug)]
-                pub struct $vname $($vspec)? $($delim)?
+                $crate::structify!(derive(Encode,Decode,Estimable,Debug), $vname, $($vspec)?);
             )+
         }
 
