@@ -1,3 +1,17 @@
+//! LazyBuilder: A very poor approximation of `ByteString.Builder` from Haskell
+//!
+//! A [`Builder`] implementation based loosely on Haskell's `bytestring` Builder type,
+//! but which in reality is neither an actual analogue for that design, nor nearly as
+//! efficient as [`StrictBuilder`].
+//!
+//! Preserved mostly as an aspiration to improve its design to the point it is actually
+//! comparatively performant,
+//! or perhaps merely to serve as a warning against future attempts to achieve anything faster
+//! than `StrictBuilder` through such methodology.
+//!
+//! [`Builder`]: ./builder.html
+//! [`StrictBuilder`]: ./builder.strict.html
+
 use std::ops::AddAssign;
 use std::{borrow::Borrow, ops::Add};
 
@@ -6,6 +20,16 @@ use std::collections::LinkedList;
 
 type Thunk<'a> = Box<dyn FnMut(&mut Vec<u8>) + 'a>;
 
+/// A self-contained lazy computation that modifies a buffer of type `&mut Vec<u8>`
+/// by writing a certain number of bytes to its tail and otherwise leaving it unchanged.
+/// This computation can only be performed once, as the associated function that applies
+/// it takes ownership of the `AtomicWrite` value it is applying.
+///
+/// The number of bytes that will be written by the operation
+/// (under normal operating conditions) is stored internally alongside
+/// the itself, and as the fields are private and the only constructors
+/// determine the correct length internally and verifiably, it is safe
+/// to assume that this will be accurate.
 pub struct AtomicWrite<'a> {
     nbytes: usize,
     thunk: Thunk<'a>,
@@ -14,10 +38,6 @@ pub struct AtomicWrite<'a> {
 impl<'a> AtomicWrite<'a> {
     pub fn apply(mut self, buf: &mut Vec<u8>) {
         (self.thunk)(buf);
-    }
-
-    pub fn new(thunk: Thunk<'a>, nbytes: usize) -> Self {
-        Self { nbytes, thunk }
     }
 
     #[allow(dead_code)]
@@ -193,7 +213,7 @@ impl<'a> LazyBuilder<'a> {
 
 impl<'a> super::TransientBuilder<'a> for LazyBuilder<'a> {
     fn delayed(thunk: impl 'a + FnMut(&mut Vec<u8>), len: usize) -> Self {
-        LazySegment::Opaque(AtomicWrite::new(Box::new(thunk), len)).promote()
+        LazySegment::Opaque(AtomicWrite { thunk: Box::new(thunk), nbytes: len }).promote()
     }
 }
 
