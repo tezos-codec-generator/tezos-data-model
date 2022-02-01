@@ -19,11 +19,25 @@ pub enum ConvError<T> {
     HexError(T),
 }
 
+impl Display for ConvError<()> {
+    fn fmt(&self, f: &mut Formatter) -> Result {
+        match self {
+            Self::ParityError(_) => write!(f, "cannot parse string with odd parity as hexstring"),
+            Self::HexError(_) => write!(f, "parsing of hexstring encountered invalid hexadecimal character(s)"),
+        }
+    }
+}
+
 impl Display for ConvError<String> {
     fn fmt(&self, f: &mut Formatter) -> Result {
         match self {
             Self::ParityError(s) => {
-                write!(f, "input string has odd parity (expected even): '{}'", s)
+                write!(
+                    f,
+                    "input string has odd parity ({}) (expected even): '{}'",
+                    s.len(),
+                    s
+                )
             }
             Self::HexError(s) => {
                 write!(
@@ -277,7 +291,6 @@ impl Display for ParseError {
         }
     }
 }
-
 
 impl From<Infallible> for ParseError {
     fn from(_: Infallible) -> Self {

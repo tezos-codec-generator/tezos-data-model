@@ -12,6 +12,7 @@ bench = false
 
 [dependencies]
 bitvec = "0.22"
+faster-hex = "0.6.1"
 
 [dependencies.num-bigint]
 version = "0.3"
