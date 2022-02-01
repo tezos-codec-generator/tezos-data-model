@@ -75,31 +75,29 @@ where
     }
 }
 
-impl<T: FixedLength> ScalarLength for Vec<T> {
-    type Elem = T;
 
-    fn n_elems(&self) -> usize {
-        Vec::len(&self)
+macro_rules! impl_scalar_len {
+    ( $elt:ident ; $( $x:ty ),+ ) =>  {
+        $(
+            impl<$elt: FixedLength> ScalarLength for $x {
+                type Elem = $elt;
+                fn n_elems(&self) -> usize {
+                    self.len()
+                }
+            }
+        )+
+    };
+    ( $( $x:ty ),+ ) =>  {
+        $(
+            impl ScalarLength for $x {
+                type Elem = u8;
+                fn n_elems(&self) -> usize {
+                    self.len()
+                }
+            }
+        )+
     }
 }
 
-impl ScalarLength for String {
-    type Elem = u8;
-    fn n_elems(&self) -> usize {
-        String::len(&self)
-    }
-}
-
-impl ScalarLength for str {
-    type Elem = u8;
-    fn n_elems(&self) -> usize {
-        str::len(&self)
-    }
-}
-
-impl ScalarLength for &str {
-    type Elem = u8;
-    fn n_elems(&self) -> usize {
-        str::len(self)
-    }
-}
+impl_scalar_len!(T; [T], &'_ [T], Vec<T>);
+impl_scalar_len! { str, &'_ str, std::borrow::Cow<'_, str>, String }
