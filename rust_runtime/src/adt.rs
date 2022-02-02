@@ -1,5 +1,5 @@
 /// Generates a type-definition and associated implementations
-/// of the runtime traits [`Encode`], [`Decode`], and [`FixedLength`]
+/// of the runtime traits [`Encode`](crate::conv::Encode), [`Decode`](crate::conv::Decode), and [`FixedLength`](crate::conv::len::FixedLength)
 /// for a C-Style enum (i.e. type-level association between type-scoped identifiers
 /// and unique unsigned integral constants, without any associated data).
 ///
@@ -40,6 +40,7 @@
 /// assert_eq(std::mem::size_of::<NarrowUnit>(), 1);
 /// assert_eq(std::mem::size_of::<WideUnit>(), 4);
 /// ```
+///
 #[macro_export]
 macro_rules! cstyle {
     ( $name:ident, $backer:ident, { $( $vname:ident = $vdisc:expr ),+ } ) => {
@@ -129,7 +130,7 @@ macro_rules! structify {
 }
 
 /// Generates a type-definition and associated implementations
-/// of the runtime traits [`Encode`], [`Decode`], and [`FixedLength`]
+/// of the runtime traits [`Encode`](crate::conv::Encode), [`Decode`](crate::conv::Decode), and [`FixedLength`](crate::conv::len::FixedLength)
 /// for a data enum (i.e. discriminated union with at least one constructor carrying data).
 ///
 /// For the purposes of avoiding extraneous boilerplate logic in the macro itself, the expansion

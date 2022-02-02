@@ -6,7 +6,7 @@ use crate::util::hex_of_bytes;
 ///
 /// Monoidal (through `std::ops::Add`) string-builder
 /// made up of raw bytes, that can be displayed as a hexstring
-/// or a raw minary string
+/// or a raw binary string
 pub trait Builder
 where
     Self: std::ops::Add<Self, Output = Self> + std::ops::AddAssign<Self> + Sized + From<Vec<u8>>,
@@ -22,6 +22,8 @@ where
     /// Constructor used for instantiating builders that consist of a fixed-size array of 8-bit words
     fn words<const N: usize>(b: [u8; N]) -> Self;
 
+    fn finalize(self) -> Self::Final;
+
     /// Consume the Builder object and return a vector of its contents
     fn into_vec(self) -> Vec<u8> {
         self.finalize().into()
@@ -31,8 +33,6 @@ where
     fn into_hex(self) -> String {
         hex_of_bytes(self.into_vec().borrow())
     }
-
-    fn finalize(self) -> Self::Final;
 
     /// Return a Builder object containing zero bytes. Defaults to words over empty array.
     fn empty() -> Self {
