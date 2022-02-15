@@ -48,15 +48,15 @@ impl<S, T> std::ops::Deref for Dynamic<S, T> {
     }
 }
 
-pub trait LenPref
+pub unsafe trait LenPref
 where
     Self: Into<usize> + TryFrom<usize> + Copy + EncodeLength + Decode,
 {
 }
 
-impl LenPref for u8 {}
-impl LenPref for u16 {}
-impl LenPref for u30 {}
+unsafe impl LenPref for u8 {}
+unsafe impl LenPref for u16 {}
+unsafe impl LenPref for u30 {}
 
 impl<S: LenPref, T: EncodeLength> Encode for Dynamic<S, T> {
     fn write(&self, buf: &mut Vec<u8>) {

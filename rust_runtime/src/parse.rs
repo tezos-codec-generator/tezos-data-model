@@ -438,7 +438,7 @@ pub mod byteparser {
         }
 
         fn consume(&mut self, nbytes: usize) -> ParseResult<&[u8]> {
-            match Stack::peek_mut(&mut self.0) {
+            match <Vec<_> as Stack>::peek_mut(&mut self.0) {
                 None => Err(ParseError::BufferOverflow {
                     buflen: 0,
                     requested: nbytes,

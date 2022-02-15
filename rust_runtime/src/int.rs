@@ -208,7 +208,7 @@ impl Decode for u64 {
 
 impl<I, const MIN: i32, const MAX: i32> Encode for RangedInt<I, MIN, MAX>
 where
-    I: Eq + Ord + Debug + Display + Copy + Encode + Into<i64> + TryFrom<i64>,
+    I: Integral + Encode,
     <I as TryFrom<i64>>::Error: std::fmt::Debug,
 {
     fn write(&self, buf: &mut Vec<u8>) {
