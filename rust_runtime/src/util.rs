@@ -1,7 +1,4 @@
-extern crate faster_hex;
 use crate::parse::error::ConvError;
-
-use faster_hex::{hex_check_fallback, hex_decode_unchecked};
 
 pub fn hex_of_bytes(bytes: &[u8]) -> String {
     let mut hex: String = String::with_capacity(bytes.len() * 2);
@@ -12,8 +9,7 @@ pub fn hex_of_bytes(bytes: &[u8]) -> String {
     return hex;
 }
 
-/// Wrapper around [`hex_decode`] from `faster-hex`
-pub fn bytes_of_hex<T: AsRef<[u8]>>(src: &T) -> Result<Vec<u8>, ConvError<()>> {
+pub fn bytes_of_hex<T: AsRef<str>>(src: &T) -> Result<Vec<u8>, ConvError<()>> {
     let src = src.as_ref();
     if src.is_empty() {
         return Ok(Vec::new());
@@ -21,16 +17,19 @@ pub fn bytes_of_hex<T: AsRef<[u8]>>(src: &T) -> Result<Vec<u8>, ConvError<()>> {
 
     let _l = src.len();
 
-    if _l & 1 != 0 {
+    if _l % 2 != 0 {
         return Err(ConvError::ParityError(()));
     }
 
-    let mut dst = Vec::with_capacity(_l >> 1);
+    let n = _l / 2;
 
-    if !hex_check_fallback(src) {
-        return Err(ConvError::HexError(()));
+    let mut dst = Vec::with_capacity(n);
+
+    for ix in 0..n {
+        match u8::from_str_radix(&src[ix * 2..(ix + 1) * 2], 16) {
+            Ok(word) => dst.push(word),
+            Err(_) => return Err(ConvError::HexError(())),
+        }
     }
-
-    hex_decode_unchecked(src, &mut dst);
     Ok(dst)
 }
