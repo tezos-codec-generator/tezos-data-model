@@ -2,23 +2,27 @@ extern crate bitvec;
 extern crate num_bigint;
 extern crate rug;
 
-use crate::{Decode, Encode, Parser, parse::byteparser::ParseResult};
-
 pub trait Zarith {
     fn deserialize(bytes: &[u8]) -> Self;
     fn serialize(&self) -> Vec<u8>;
 }
 
-impl<I: Zarith> Encode for I {
-    fn write(&self, buf: &mut Vec<u8>) {
-        buf.append(&mut self.serialize())
-    }
-}
+macro_rules! impl_zarith {
+    ($x:ident) => {
+        impl $crate::Encode for $x {
+            fn write(&self, buf: &mut Vec<u8>) {
+                buf.append(&mut <$x as $crate::zarith::Zarith>::serialize(self))
+            }
+        }
 
-impl<I: Zarith> Decode for I {
-    fn parse<P: Parser>(p: &mut P) -> ParseResult<Self> {
-        Ok(I::deserialize( &p.get_self_terminating(|byte| byte & 0x80 == 0)?))
-    }
+        impl $crate::Decode for $x {
+            fn parse<P: $crate::Parser>(p: &mut P) -> $crate::ParseResult<Self> {
+                Ok(<$x as $crate::zarith::Zarith>::deserialize(
+                    &p.get_self_terminating(|byte| byte & 0x80 == 0)?,
+                ))
+            }
+        }
+    };
 }
 
 pub mod n {
@@ -80,7 +84,7 @@ pub mod n {
             const KNOWN: Option<usize> = None;
 
             fn unknown(&self) -> usize {
-                let n : usize = self.0.bits() as usize;
+                let n: usize = self.0.bits() as usize;
                 n.div_ceil(7)
             }
         }
@@ -114,6 +118,8 @@ pub mod n {
             }
         }
 
+        impl_zarith!(N);
+
         #[cfg(test)]
         mod test {
             use super::*;
@@ -136,8 +142,8 @@ pub mod n {
         use bitvec::prelude::BitVec;
         use bitvec::slice::BitSlice;
         use bitvec::view::BitView;
-        use rug::Integer;
         use rug::ops::DivRounding;
+        use rug::Integer;
         use std::convert::{TryFrom, TryInto};
         use std::fmt::{Debug, Display};
         use std::ops::Deref;
@@ -220,7 +226,7 @@ pub mod n {
             const KNOWN: Option<usize> = None;
 
             fn unknown(&self) -> usize {
-                let n : usize = self.0.significant_bits() as usize;
+                let n: usize = self.0.significant_bits() as usize;
                 n.div_ceil(7)
             }
         }
@@ -277,6 +283,8 @@ pub mod n {
                 bits.into_vec()
             }
         }
+
+        impl_zarith!(N);
 
         #[cfg(test)]
         mod test {
@@ -365,10 +373,10 @@ pub mod z {
             const KNOWN: Option<usize> = None;
 
             fn unknown(&self) -> usize {
-                let n : usize = self.0.bits() as usize;
+                let n: usize = self.0.bits() as usize;
                 match n {
                     0..=6 => 1,
-                    n => 1 + (n - 6).div_ceil(7)
+                    n => 1 + (n - 6).div_ceil(7),
                 }
             }
         }
@@ -452,6 +460,8 @@ pub mod z {
                 ret
             }
         }
+
+        impl_zarith!(Z);
 
         #[cfg(test)]
         mod test {
@@ -538,10 +548,10 @@ pub mod z {
             const KNOWN: Option<usize> = None;
 
             fn unknown(&self) -> usize {
-                let n : usize = self.0.significant_bits() as usize;
+                let n: usize = self.0.significant_bits() as usize;
                 match n {
                     0..=6 => 1,
-                    n => 1 + (n - 6).div_ceil(7)
+                    n => 1 + (n - 6).div_ceil(7),
                 }
             }
         }
@@ -641,6 +651,8 @@ pub mod z {
                 ret
             }
         }
+
+        impl_zarith!(Z);
 
         #[cfg(test)]
         mod test {

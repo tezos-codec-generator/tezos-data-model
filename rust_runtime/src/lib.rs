@@ -49,6 +49,7 @@
 //!
 //! [`codec_generator`]: Originally a separate project known as `tezos-codec-compiler`
 
+pub mod autobox;
 pub mod adt;
 mod bound;
 pub mod builder;
@@ -64,10 +65,11 @@ pub mod schema;
 pub mod util;
 pub mod zarith;
 
+pub use crate::autobox::AutoBox;
 pub use crate::builder::{lazy::LazyBuilder, owned::OwnedBuilder, strict::StrictBuilder, Builder};
 pub use crate::conv::{
     len::{Estimable, FixedLength, ScalarLength},
-    Decode, Encode,
+    Decode, Encode
 };
 pub use crate::dynamic::Dynamic;
 pub use crate::fixed::{bytestring::ByteString, charstring::CharString};
