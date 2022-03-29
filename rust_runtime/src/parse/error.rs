@@ -3,7 +3,7 @@
 
 use std::{convert::Infallible, fmt::*, string::FromUtf8Error};
 
-use crate::bound::OutOfRange;
+use crate::{bound::OutOfRange, error::ConstraintError};
 
 /// Enumerated type representing errors in conversion from hex-strings
 /// into byte-buffers.
@@ -102,6 +102,9 @@ pub enum ExternalErrorKind {
     /// Error scenario in which a double-precision IEEE float parsed from the buffer happened to fall
     /// outside of the valid range of a RangedFloat type.
     FloatRangeViolation(OutOfRange<f64>),
+    /// Error scenario in which a trivial type-conversion could not be performed without implicitly
+    /// violating a type-level (schema-level) constraint in the target type.
+    ConstraintViolation(ConstraintError),
 }
 
 impl From<FromUtf8Error> for ExternalErrorKind {
@@ -122,6 +125,12 @@ impl From<OutOfRange<f64>> for ExternalErrorKind {
     }
 }
 
+impl From<ConstraintError> for ExternalErrorKind {
+    fn from(err: ConstraintError) -> Self {
+        Self::ConstraintViolation(err)
+    }
+}
+
 impl Display for ExternalErrorKind {
     fn fmt(&self, f: &mut Formatter) -> Result {
         match self {
@@ -136,6 +145,9 @@ impl Display for ExternalErrorKind {
                 write!(f, "{}", x)
             }
             ExternalErrorKind::FloatRangeViolation(x) => {
+                write!(f, "{}", x)
+            }
+            ExternalErrorKind::ConstraintViolation(x) => {
                 write!(f, "{}", x)
             }
         }

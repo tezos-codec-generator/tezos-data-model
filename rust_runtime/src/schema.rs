@@ -1,7 +1,51 @@
 use crate::conv::{len, Decode, Encode};
-use crate::parse::byteparser::{Parser, ParseResult};
+use crate::error::ConstraintError;
+use crate::parse::byteparser::{ParseResult, Parser};
+use std::convert::{TryFrom, TryInto};
 use std::ops::DerefMut;
 use std::{self, ops::Deref};
+
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
+pub struct Padded<T, const N: usize>(T);
+
+impl<T, const N: usize> Deref for Padded<T, N> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl<T: Encode, const N: usize> Encode for Padded<T, N> {
+    fn write(&self, buf: &mut Vec<u8>) {
+        self.0.write(buf);
+        buf.extend(std::iter::repeat(0).take(N));
+    }
+}
+
+impl<T: Decode, const N: usize> Decode for Padded<T, N> {
+    fn parse<P: Parser>(p: &mut P) -> ParseResult<Self>
+    where
+        Self: Sized,
+    {
+        let ret = T::parse(p)?;
+        let _ = p.consume(N)?;
+        Ok(Self(ret))
+    }
+}
+
+impl<T: len::Estimable, const N: usize> len::Estimable for Padded<T, N> {
+    const KNOWN: Option<usize> = {
+        match T::KNOWN {
+            Some(m) => Some(m + N),
+            None => None,
+        }
+    };
+
+    fn unknown(&self) -> usize {
+        self.0.unknown() + N
+    }
+}
 
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Bytes(Vec<u8>);
@@ -55,6 +99,77 @@ impl Encode for Bytes {
 impl Decode for Bytes {
     fn parse<P: Parser>(p: &mut P) -> ParseResult<Self> {
         Ok(Self(Vec::<u8>::parse(p)?))
+    }
+}
+
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub struct LimSeq<T, const N: usize>(Vec<T>);
+
+impl<T, const N: usize> Into<Vec<T>> for LimSeq<T, N> {
+    fn into(self) -> Vec<T> {
+        self.0
+    }
+}
+
+impl<T, const N: usize> TryFrom<Vec<T>> for LimSeq<T, N> {
+    type Error = crate::error::ConstraintError;
+
+    fn try_from(value: Vec<T>) -> Result<Self, Self::Error> {
+        let l = value.len();
+        if l <= N {
+            Ok(Self(value))
+        } else {
+            Err(ConstraintError::TooManyElements {
+                limit: N,
+                actual: l,
+            })
+        }
+    }
+}
+
+impl<T, const N: usize> Deref for LimSeq<T, N> {
+    type Target = Vec<T>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl<T: len::Estimable, const N: usize> len::Estimable for LimSeq<T, N> {
+    const KNOWN: Option<usize> = None;
+
+    fn unknown(&self) -> usize {
+        self.0.iter().map(len::Estimable::len).sum()
+    }
+}
+
+impl<T: Encode, const N: usize> Encode for LimSeq<T, N> {
+    fn write(&self, buf: &mut Vec<u8>) {
+        for item in &self.0 {
+            item.write(buf);
+        }
+    }
+}
+
+impl<T: Decode, const N: usize> Decode for LimSeq<T, N> {
+    fn parse<P: Parser>(p: &mut P) -> ParseResult<Self> {
+        let mut seq: Vec<T> = Vec::new();
+
+        while p.remainder() != 0 {
+            {
+                let l = seq.len();
+                if l >= N {
+                    return Err(ConstraintError::TooManyElements {
+                        limit: N,
+                        actual: l,
+                    }
+                    .into());
+                }
+            }
+            seq.push(T::parse(p)?);
+        }
+
+        Ok(seq.try_into()?)
     }
 }
 
