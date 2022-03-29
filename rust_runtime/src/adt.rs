@@ -116,7 +116,7 @@ macro_rules! cstyle {
 /// add semicolons to the end of struct definitions if and only if they are required.
 #[macro_export]
 macro_rules! structify {
-    ( $m:meta, $tname:ident, ) => {
+    ( $m:meta, $tname:ident, $(_)? ) => {
         #[$m]
         pub struct $tname;
     };
