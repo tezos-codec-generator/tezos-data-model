@@ -139,7 +139,7 @@ impl<T: len::Estimable, const N: usize> len::Estimable for LimSeq<T, N> {
     const KNOWN: Option<usize> = None;
 
     fn unknown(&self) -> usize {
-        self.0.iter().map(len::Estimable::len).sum()
+        self.0.iter().map(len::Estimable::estimate).sum()
     }
 }
 
@@ -206,7 +206,7 @@ impl<T: len::Estimable> len::Estimable for Sequence<T> {
     const KNOWN: Option<usize> = None;
 
     fn unknown(&self) -> usize {
-        self.0.iter().map(len::Estimable::len).sum()
+        self.0.iter().map(len::Estimable::estimate).sum()
     }
 }
 

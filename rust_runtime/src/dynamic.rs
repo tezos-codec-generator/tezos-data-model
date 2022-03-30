@@ -24,13 +24,13 @@ impl<S: FixedLength, T: Estimable> Estimable for Dynamic<S, T> {
     };
 
     fn unknown(&self) -> usize {
-        <S as FixedLength>::LEN + self.contents.len()
+        <S as FixedLength>::LEN + self.contents.estimate()
     }
 }
 
 impl<S, T: Debug + crate::conv::len::Estimable> Debug for Dynamic<S, T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "[{} bytes|{:?}]", self.contents.len(), self.contents)
+        write!(f, "[{} bytes|{:?}]", self.contents.estimate(), self.contents)
     }
 }
 

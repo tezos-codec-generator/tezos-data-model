@@ -116,7 +116,7 @@ macro_rules! cstyle {
 /// add semicolons to the end of struct definitions if and only if they are required.
 #[macro_export]
 macro_rules! structify {
-    ( $m:meta, $tname:ident, $(_)? ) => {
+    ( $m:meta, $tname:ident, $(,)? ) => {
         #[$m]
         pub struct $tname;
     };
@@ -126,7 +126,8 @@ macro_rules! structify {
     };
     ( $m:meta, $tname:ident, { $( $v:vis $x:ident : $y:ty ),* }) => {
         #[$m]
-        pub struct $tname { $( $v $x : $y ),* } }
+        pub struct $tname { $( $v $x : $y ),* }
+    };
 }
 
 /// Generates a type-definition and associated implementations
@@ -187,13 +188,13 @@ macro_rules! structify {
 /// ```
 #[macro_export]
 macro_rules! data {
-    { $name:ident, $backer:ident, { $( $disc:expr => $vname:ident $($vspec:tt)? ),+ } } => {
+    { $name:ident, $backer:ident, { $( $disc:expr => $vname:ident $vspec:tt $(,)? )+ } } => {
         pub mod payload {
             #![allow(non_camel_case_types)]
             use super::*;
             use $crate::FixedLength;
             $(
-                $crate::structify!(derive(Encode,Decode,Estimable,Debug), $vname, $($vspec)?);
+                $crate::structify!(derive(Encode,Decode,Estimable,Debug), $vname, $vspec);
             )+
         }
 
@@ -236,7 +237,7 @@ macro_rules! data {
                 match self {
                     $(
                         $name::$vname(inner) =>
-                            <$backer as FixedLength>::LEN + <payload::$vname as Estimable>::len(inner)
+                            <$backer as FixedLength>::LEN + <payload::$vname as Estimable>::estimate(inner)
                     ),+
                 }
             }

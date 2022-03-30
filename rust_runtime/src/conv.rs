@@ -86,7 +86,7 @@ pub trait EncodeLength: Encode {
 
 impl<T: Encode + len::Estimable + ?Sized> EncodeLength for T {
     fn enc_len(&self) -> usize {
-        self.len()
+        self.estimate()
     }
 }
 

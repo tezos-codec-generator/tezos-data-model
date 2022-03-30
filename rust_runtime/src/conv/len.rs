@@ -140,10 +140,7 @@ pub trait Estimable {
 
     /// Short-circuiting length function that returns the value of `Self::KNOWN`,
     /// or the evaluation of `self.unknown()` if the former is `None`.
-    ///
-    /// (The name of this method may change to avoid the need for fully qualifying method
-    /// calls when `len(&self)` already exists as a type-associated function on `Self`)
-    fn len(&self) -> usize {
+    fn estimate(&self) -> usize {
         Self::KNOWN.unwrap_or_else(|| self.unknown())
     }
 }
@@ -168,7 +165,7 @@ where
     fn unknown(&self) -> usize {
         match self {
             &None => 1,
-            Some(x) => 1 + x.len(),
+            Some(x) => 1 + x.estimate(),
         }
     }
 }
