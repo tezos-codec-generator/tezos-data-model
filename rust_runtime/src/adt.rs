@@ -237,7 +237,7 @@ macro_rules! data {
                 match self {
                     $(
                         $name::$vname(inner) =>
-                            <$backer as FixedLength>::LEN + <payload::$vname as Estimable>::estimate(inner)
+                            <$backer as $crate::FixedLength>::LEN + <payload::$vname as $crate::Estimable>::estimate(inner)
                     ),+
                 }
             }
