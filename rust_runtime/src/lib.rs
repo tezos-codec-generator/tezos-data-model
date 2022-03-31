@@ -65,7 +65,9 @@ pub mod prim;
 pub mod schema;
 pub mod util;
 pub mod zarith;
+pub mod default;
 
+pub use ::lazy_static::lazy_static;
 pub use crate::autobox::AutoBox;
 pub use crate::builder::{lazy::LazyBuilder, owned::OwnedBuilder, strict::StrictBuilder, Builder};
 pub use crate::conv::{

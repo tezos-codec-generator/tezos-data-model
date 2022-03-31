@@ -12,6 +12,7 @@ bench = false
 
 [dependencies]
 bitvec = "0.22"
+lazy_static = "1.4.0"
 
 [dependencies.num-bigint]
 version = "0.3"
