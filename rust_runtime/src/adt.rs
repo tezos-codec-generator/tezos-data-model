@@ -120,13 +120,17 @@ macro_rules! structify {
         #[$m]
         pub struct $tname;
     };
-    ( $m:meta, $tname:ident, ( $( $v:vis $i:ty ),* )) => {
+    ( $m:meta, $tname:ident, () ) => {
         #[$m]
-        pub struct $tname( $( $v $i),* );
+        pub struct $tname;
     };
-    ( $m:meta, $tname:ident, { $( $v:vis $x:ident : $y:ty ),* }) => {
+    ( $m:meta, $tname:ident, ( $( $v:vis $i:ty ),+ )) => {
         #[$m]
-        pub struct $tname { $( $v $x : $y ),* }
+        pub struct $tname( $( $v $i),+ );
+    };
+    ( $m:meta, $tname:ident, { $( $v:vis $x:ident : $y:ty ),+ }) => {
+        #[$m]
+        pub struct $tname { $( $v $x : $y ),+ }
     };
 }
 
@@ -188,8 +192,8 @@ macro_rules! structify {
 /// ```
 #[macro_export]
 macro_rules! data {
-    { $name:ident, $backer:ident, { $( $disc:expr => $vname:ident $vspec:tt $(,)? )+ } } => {
-        pub mod payload {
+    { $name:ident, $backer:ident, $payload:ident, { $( $disc:expr => $vname:ident $vspec:tt $(,)? )+ } } => {
+        pub mod $payload {
             #![allow(non_camel_case_types)]
             use super::*;
             use $crate::FixedLength;
@@ -201,7 +205,7 @@ macro_rules! data {
 
         #[derive(Debug)]
         pub enum $name {
-            $( $vname(payload::$vname) ),+
+            $( $vname($payload::$vname) ),+
         }
 
         impl $crate::Decode for $name {
@@ -209,7 +213,7 @@ macro_rules! data {
                 match p.get_tagword::<$name, $backer>(&vec![ $( $disc as $backer ),+ ])? {
                     $(
                         $disc => {
-                            Ok($name::$vname(<payload::$vname>::parse(p)?))
+                            Ok($name::$vname(<$payload::$vname>::parse(p)?))
                         }
                     )+
                     _ => unreachable!(),
@@ -223,7 +227,7 @@ macro_rules! data {
                     $(
                         $name::$vname(inner) => {
                             <$backer>::write(&$disc, buf);
-                            <payload::$vname>::write(inner, buf);
+                            <$payload::$vname>::write(inner, buf);
                         }
                     )+
                 };
@@ -237,7 +241,7 @@ macro_rules! data {
                 match self {
                     $(
                         $name::$vname(inner) =>
-                            <$backer as $crate::FixedLength>::LEN + <payload::$vname as $crate::Estimable>::estimate(inner)
+                            <$backer as $crate::FixedLength>::LEN + <$payload::$vname as $crate::Estimable>::estimate(inner)
                     ),+
                 }
             }
