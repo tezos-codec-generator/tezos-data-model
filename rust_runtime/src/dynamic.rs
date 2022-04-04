@@ -1,14 +1,17 @@
 use crate::{Estimable, FixedLength, Parser, conv::{Decode, Encode, EncodeLength}, u30, parse::byteparser::ParseResult};
 use std::{convert::{TryFrom, TryInto}, fmt::{Debug, Display}, marker::PhantomData};
 
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Dynamic<S, T> {
     contents: T,
-    _phantom: std::marker::PhantomData<S>,
+    _phantom: PhantomData<S>,
 }
+
+
 
 impl<S, T> Dynamic<S, T> {
     pub fn wrap(contents: T) -> Self {
-        Self { contents, _phantom: std::marker::PhantomData }
+        Self { contents, _phantom: PhantomData }
     }
 }
 
