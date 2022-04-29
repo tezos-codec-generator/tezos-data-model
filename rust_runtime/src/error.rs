@@ -12,6 +12,12 @@ pub enum ConstraintError {
         limit: usize,
         actual: usize,
     },
+    /// Error case representing a violation of type-level cardinality constraints
+    /// on an exact-length sequence, whether too few or too many.
+    InexactCardinality {
+        expected: usize,
+        actual: usize,
+    },
     /// Error case representing a violation of type-level serialization-width constraints
     /// on a size-bounded value.
     TooManyBytes {
@@ -25,12 +31,17 @@ impl Display for ConstraintError {
         match self {
             ConstraintError::TooManyElements { limit, actual } => write!(
                 f,
-                "schema-level cardinality-constraint violation: max is {}, {} found",
+                "schema-level cardinality-constraint violation: max is {}, found {}",
                 limit, actual
+            ),
+            ConstraintError::InexactCardinality { expected, actual } => write!(
+                f,
+                "schema-level cardinality-constraint violation: expected {}, found {}",
+                expected, actual
             ),
             ConstraintError::TooManyBytes { limit, actual } => write!(
                 f,
-                "schema-level bytewidth-constraint violation: max is {}, {} found",
+                "schema-level bytewidth-constraint violation: max is {}, found {}",
                 limit, actual
             ),
         }

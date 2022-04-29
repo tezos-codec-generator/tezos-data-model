@@ -102,7 +102,78 @@ impl Decode for Bytes {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
+// TODO: should this be implemented as an array rather than a vector?
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone)]
+pub struct FixSeq<T, const N: usize>(Vec<T>);
+
+impl<T, const N: usize> Into<Vec<T>> for FixSeq<T, N> {
+    fn into(self) -> Vec<T> {
+        self.0
+    }
+}
+
+impl<T, const N: usize> TryFrom<Vec<T>> for FixSeq<T, N> {
+    type Error = crate::error::ConstraintError;
+
+    fn try_from(value: Vec<T>) -> Result<Self, Self::Error> {
+        let l = value.len();
+        if l == N {
+            Ok(Self(value))
+        } else {
+            Err(ConstraintError::InexactCardinality {
+                expected: N,
+                actual: l,
+            })
+        }
+    }
+}
+
+impl<T, const N: usize> Deref for FixSeq<T, N> {
+    type Target = Vec<T>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl<T: len::Estimable, const N: usize> len::Estimable for FixSeq<T, N> {
+    const KNOWN: Option<usize> = None;
+
+    fn unknown(&self) -> usize {
+        self.0.iter().map(len::Estimable::estimate).sum()
+    }
+}
+
+impl<T: Encode, const N: usize> Encode for FixSeq<T, N> {
+    fn write(&self, buf: &mut Vec<u8>) {
+        for item in &self.0 {
+            item.write(buf);
+        }
+    }
+}
+
+impl<T: Decode, const N: usize> Decode for FixSeq<T, N> {
+    fn parse<P: Parser>(p: &mut P) -> ParseResult<Self> {
+        let mut seq: Vec<T> = Vec::new();
+
+        while p.remainder() != 0 {
+            {
+                let l = seq.len();
+                if l >= N {
+                    return Err(ConstraintError::TooManyElements {
+                        limit: N,
+                        actual: l,
+                    }
+                    .into());
+                }
+            }
+            seq.push(T::parse(p)?);
+        }
+
+        Ok(seq.try_into()?)
+    }
+}
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone)]
 pub struct LimSeq<T, const N: usize>(Vec<T>);
 
 impl<T, const N: usize> Into<Vec<T>> for LimSeq<T, N> {
