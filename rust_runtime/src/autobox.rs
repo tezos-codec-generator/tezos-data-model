@@ -3,6 +3,7 @@ use crate::parse::byteparser::{ParseResult, Parser};
 use std::fmt::Debug;
 use std::ops::Deref;
 
+#[derive(Clone)]
 pub struct AutoBox<T: Encode + Decode + Estimable + Debug> {
     _box: Box<T>,
 }

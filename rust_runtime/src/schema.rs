@@ -47,7 +47,7 @@ impl<T: len::Estimable, const N: usize> len::Estimable for Padded<T, N> {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone)]
 pub struct Bytes(Vec<u8>);
 
 impl len::ScalarLength for Bytes {
@@ -244,7 +244,7 @@ impl<T: Decode, const N: usize> Decode for LimSeq<T, N> {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone)]
 pub struct Sequence<T>(Vec<T>);
 
 impl<T> Into<Vec<T>> for Sequence<T> {

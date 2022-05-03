@@ -25,7 +25,7 @@ pub mod bytestring {
     use crate::parse::byteparser::ParseResult;
     use crate::Parser;
 
-    #[derive(PartialEq, Eq, PartialOrd, Ord, Debug)]
+    #[derive(PartialEq, Eq, PartialOrd, Ord, Debug, Clone, Copy)]
     pub struct ByteString<const N: usize>([u8; N]);
 
     impl<const N: usize> From<&[u8; N]> for ByteString<N> {
@@ -86,7 +86,7 @@ pub mod charstring {
 
     use super::LengthMismatchError;
 
-    #[derive(PartialEq, Eq, PartialOrd, Ord, Debug)]
+    #[derive(PartialEq, Eq, PartialOrd, Ord, Debug, Clone, Copy)]
     pub struct CharString<const N: usize> {
         contents: [u8; N],
     }
