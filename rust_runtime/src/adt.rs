@@ -44,7 +44,7 @@
 #[macro_export]
 macro_rules! cstyle {
     ( $name:ident, $backer:ident, { $( $vname:ident = $vdisc:expr ),+ } ) => {
-        #[derive(Debug)]
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
         #[repr($backer)]
         pub enum $name {
             $( $vname = $vdisc ),+
@@ -198,12 +198,12 @@ macro_rules! data {
             use super::*;
             use $crate::FixedLength;
             $(
-                $crate::structify!(derive(Encode,Decode,Estimable,Debug), $vname, $vspec);
+                $crate::structify!(derive(Encode,Decode,Estimable,Debug,Clone,PartialEq,Eq,PartialOrd,Ord), $vname, $vspec);
             )+
         }
 
 
-        #[derive(Debug)]
+        #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
         pub enum $name {
             $( $vname($payload::$vname) ),+
         }

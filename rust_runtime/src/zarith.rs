@@ -32,7 +32,7 @@ pub mod n {
         use num_bigint::BigUint;
         use rug::ops::DivRounding;
 
-        #[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
+        #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone)]
         pub struct N(pub BigUint);
 
         impl Display for N {
@@ -165,7 +165,7 @@ pub mod n {
             }
         }
 
-        #[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
+        #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone)]
         pub struct N(pub Integer);
 
         impl Display for N {
@@ -317,7 +317,7 @@ pub mod z {
         use num_bigint::{BigInt, BigUint, Sign};
         use rug::ops::DivRounding;
 
-        #[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
+        #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone)]
         pub struct Z(pub BigInt);
 
         impl Display for Z {
@@ -489,7 +489,7 @@ pub mod z {
         use std::fmt::{Debug, Display};
         use std::ops::{Add, Deref};
 
-        #[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
+        #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone)]
         pub struct Z(pub Integer);
 
         impl Display for Z {

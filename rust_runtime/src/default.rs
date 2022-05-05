@@ -6,7 +6,7 @@ macro_rules! dft {
         }
     };
     ($id:ident [$tmp:ident] ($t:ty = $dft:expr)) => {
-        #[derive(Debug, Clone)]
+        #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
         pub struct $id($t);
 
         dft!(@memo create $tmp : $t = $dft);
