@@ -37,7 +37,7 @@ fn impl_estimable(ast: &syn::DeriveInput) -> TokenStream {
                         let syn::Field { ty, ..} = unnamed.first().unwrap();
                         quote! {
                             impl Estimable for #name {
-                                const KNOWN : Option<usize> = <#ty as Estimable>::KNOWN;
+                                const KNOWN : Option<usize> = <<#ty> as Estimable>::KNOWN;
 
                                 fn unknown(&self) -> usize {
                                     self.0.unknown()
@@ -58,7 +58,7 @@ fn impl_estimable(ast: &syn::DeriveInput) -> TokenStream {
                                             _ => None,
                                         }
                                     }
-                                    f( #( #ty::KNOWN ),* )
+                                    f( #( <#ty>::KNOWN ),* )
                                 };
 
                                 fn unknown(&self) -> usize {
