@@ -9,9 +9,15 @@ use std::{borrow::Borrow, convert::TryFrom, iter::FromIterator, vec::IntoIter};
 /// Newtype representing byte-arrays that are parsed from and displayed as
 /// hexadecimally encoded `String` values, but stored in memory as byte-buffers
 /// representing the individual words parsed from the String.
-#[derive(PartialEq, Eq, PartialOrd, Ord, Debug, Clone)]
+#[derive(PartialEq, Eq, PartialOrd, Ord, Clone)]
 pub struct HexString {
     words: Vec<u8>,
+}
+
+impl std::fmt::Debug for HexString {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("HexString").field("words", &self.as_hex()).finish()
+    }
 }
 
 impl AsRef<Vec<u8>> for HexString {

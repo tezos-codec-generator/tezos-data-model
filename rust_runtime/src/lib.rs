@@ -69,7 +69,7 @@ pub mod default;
 
 pub use ::lazy_static::lazy_static;
 pub use crate::autobox::AutoBox;
-pub use crate::builder::{lazy::LazyBuilder, owned::OwnedBuilder, strict::StrictBuilder, Builder};
+pub use crate::builder::{lazy::LazyBuilder, owned::OwnedBuilder, strict::StrictBuilder, Builder, memo::MemoBuilder};
 pub use crate::conv::{
     len::{Estimable, FixedLength, ScalarLength},
     Decode, Encode,

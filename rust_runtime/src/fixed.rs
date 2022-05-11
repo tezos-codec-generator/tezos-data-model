@@ -23,9 +23,9 @@ impl LengthMismatchError {
 pub mod bytestring {
     use crate::conv::{len, Decode, Encode};
     use crate::parse::byteparser::ParseResult;
-    use crate::Parser;
+    use crate::parse::byteparser::Parser;
 
-    #[derive(PartialEq, Eq, PartialOrd, Ord, Debug, Clone, Copy)]
+    #[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Debug)]
     pub struct ByteString<const N: usize>([u8; N]);
 
     impl<const N: usize> From<&[u8; N]> for ByteString<N> {
