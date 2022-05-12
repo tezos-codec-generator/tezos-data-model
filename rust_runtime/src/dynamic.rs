@@ -62,12 +62,11 @@ unsafe impl LenPref for u16 {}
 unsafe impl LenPref for u30 {}
 
 impl<S: LenPref, T: EncodeLength> Encode for Dynamic<S, T> {
-    fn write(&self, buf: &mut Vec<u8>) {
+    fn write_to<U: crate::conv::target::Target>(&self, buf: &mut U) -> usize {
         let l : usize = self.contents.enc_len();
         if let Ok(lp) = l.try_into() {
-            buf.reserve(l + <S as EncodeLength>::enc_len(&lp));
-            lp.write(buf);
-            self.contents.write(buf);
+            buf.anticipate(l + <S as EncodeLength>::enc_len(&lp));
+            lp.write_to(buf) + self.contents.write_to(buf)
         } else {
             panic!(
                 "Dynamic<{}, _>: Length prefix {} exceeds bounds of associated type",

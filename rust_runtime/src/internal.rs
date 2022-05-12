@@ -4,7 +4,7 @@
 /// or refactored more easily than if they were inlined.
 use std::{
     fmt::{Debug, Display},
-    ops::{Deref, DerefMut},
+    ops::{AddAssign, Deref, DerefMut},
 };
 
 /// Internal value held by an Indicator, which historically
@@ -344,5 +344,153 @@ impl Marker for ContextOffset {
 impl BoundAwareMarker for ContextOffset {
     fn lim(&self) -> usize {
         self.frames.peek_or(self._abs)
+    }
+}
+
+#[derive(Clone)]
+pub struct Spanner {
+    stable: Vec<usize>,
+    active: Option<usize>,
+    _cache: usize,
+}
+
+impl std::fmt::Debug for Spanner {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Spanner({:#?} | {:#?})", self.stable, self.active)
+    }
+}
+
+impl Spanner {
+    pub fn new() -> Self {
+        Self {
+            stable: Vec::new(),
+            active: None,
+            _cache: 0,
+        }
+    }
+
+    pub fn active_mut(&mut self) -> &mut usize {
+        self.active.get_or_insert(0)
+    }
+
+    pub fn flush(&mut self) {
+        match self.active.take() {
+            Some(last) => {
+                self.stable.push(last);
+                self._cache += last;
+            }
+            None => return,
+        };
+    }
+
+    pub fn sum(&self) -> usize {
+        self._cache + self.active.unwrap_or(0)
+    }
+
+    pub fn concat(&mut self, rhs: &mut Self) {
+        self.flush();
+        self.stable.append(&mut rhs.stable);
+        *(&mut self.active) = rhs.active;
+        *(&mut self._cache) += rhs._cache;
+        return;
+    }
+}
+
+impl IntoIterator for Spanner {
+    type Item = usize;
+
+    type IntoIter = std::iter::Chain<std::vec::IntoIter<usize>, std::option::IntoIter<usize>>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.stable.into_iter().chain(self.active.into_iter())
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct SplitVec<T: Copy> {
+    pub(crate) buffer: Vec<T>,
+    pub(crate) spans: Spanner,
+}
+
+impl<T: Copy> From<Vec<T>> for SplitVec<T> {
+    fn from(buffer: Vec<T>) -> Self {
+        SplitVec::promote_vec(buffer)
+    }
+}
+
+impl<T: Copy> AsRef<Vec<T>> for SplitVec<T> {
+    fn as_ref(&self) -> &Vec<T> {
+        &self.buffer
+    }
+}
+
+impl<T: Copy> SplitVec<T> {
+    pub fn promote_vec(buffer: Vec<T>) -> Self {
+        let l = buffer.len();
+        let mut spans = Spanner::new();
+        *((&mut spans).active_mut()) = l;
+
+        Self { spans, buffer }
+    }
+
+    pub fn split(&mut self) {
+        self.spans.flush();
+    }
+
+    pub unsafe fn deficit(&self) -> usize {
+        let lbuf = self.buffer.len();
+        let lspan = self.spans.sum();
+        debug_assert!(lbuf >= lspan);
+        lbuf - lspan
+    }
+
+    pub unsafe fn increment(&mut self, amount: usize) {
+        self.spans.active_mut().add_assign(amount)
+    }
+
+    pub unsafe fn balance(&mut self) {
+        match self.deficit() {
+            0 => return,
+            n => self.increment(n),
+        }
+    }
+
+    pub fn push_current(&mut self, val: T) {
+        self.buffer.push(val);
+        unsafe { self.increment(1) };
+    }
+
+    pub fn extend_current(&mut self, iter: impl IntoIterator<Item = T>) {
+        let l_before = self.buffer.len();
+        self.buffer.extend(iter);
+        let l_after = self.buffer.len();
+        unsafe { self.increment(l_after - l_before) }
+    }
+
+    pub fn append_current(&mut self, rhs: &mut Vec<T>) {
+        let l = rhs.len();
+        self.buffer.append(rhs);
+        unsafe { self.increment(l) }
+    }
+
+    pub fn concat(&mut self, mut rhs: Self) {
+        unsafe {
+            debug_assert_eq!(self.deficit(), 0);
+            debug_assert_eq!(rhs.deficit(), 0);
+        }
+
+        self.buffer.append(&mut rhs.buffer);
+        self.spans.concat(&mut rhs.spans);
+    }
+
+    pub fn forget(self) -> Vec<T> {
+        self.buffer
+    }
+
+    pub fn new() -> SplitVec<T> {
+        SplitVec {
+            buffer: Vec::new(),
+            spans: Spanner::new(),
+        }
     }
 }

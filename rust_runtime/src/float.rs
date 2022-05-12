@@ -1,5 +1,6 @@
 use crate::bound::OutOfRange;
 use crate::conv::len::FixedLength;
+use crate::conv::target::Target;
 use crate::conv::{Decode, Encode};
 use crate::parse::byteparser::{ParseResult, Parser};
 use std::convert::TryFrom;
@@ -96,14 +97,14 @@ impl Decode for f64 {
 }
 
 impl Encode for f64 {
-    fn write(&self, buf: &mut Vec<u8>) {
-        self.to_bits().write(buf)
+    fn write_to<U: Target>(&self, buf: &mut U) -> usize {
+        self.to_bits().write_to(buf)
     }
 }
 
 impl<const MIN: u64, const MAX: u64> Encode for RangedFloat<MIN, MAX> {
-    fn write(&self, buf: &mut Vec<u8>) {
-        self.get_validated().write(buf);
+    fn write_to<U: Target>(&self, buf: &mut U) -> usize {
+        self.get_validated().write_to(buf)
     }
 }
 
@@ -121,7 +122,7 @@ impl<const MIN: u64, const MAX: u64> Decode for RangedFloat<MIN, MAX> {
 
 #[cfg(test)]
 mod tests {
-    use crate::builder::{owned::OwnedBuilder, Builder};
+    use crate::builder::{strict::StrictBuilder, Builder};
     use crate::hex;
 
     use super::*;
@@ -131,7 +132,7 @@ mod tests {
         U: Encode + Decode + std::cmp::PartialEq + std::fmt::Debug,
     {
         for (u, enc) in table.iter() {
-            assert_eq!(enc.to_owned(), u.encode::<OwnedBuilder>().into_hex());
+            assert_eq!(enc.to_owned(), u.encode::<StrictBuilder>().into_hex());
             assert_eq!(U::decode(hex!(*enc)), *u);
         }
     }

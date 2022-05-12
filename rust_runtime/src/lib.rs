@@ -69,9 +69,10 @@ pub mod default;
 
 pub use ::lazy_static::lazy_static;
 pub use crate::autobox::AutoBox;
-pub use crate::builder::{lazy::LazyBuilder, owned::OwnedBuilder, strict::StrictBuilder, Builder, memo::MemoBuilder};
+pub use crate::builder::{strict::StrictBuilder, Builder, memo::MemoBuilder};
 pub use crate::conv::{
     len::{Estimable, FixedLength, ScalarLength},
+    target::Target,
     Decode, Encode,
 };
 pub use crate::dynamic::Dynamic;
@@ -84,4 +85,4 @@ pub use crate::parse::{
     hexstring::HexString,
 };
 pub use crate::schema::{Bytes, LimSeq, Padded, Sequence};
-pub use crate::zarith::{n::nat_big::N, z::int_big::Z, Zarith};
+pub use crate::zarith::{n::N, z::Z, Zarith};

@@ -1,3 +1,4 @@
+use crate::conv::target::Target;
 use crate::conv::{len::Estimable, Decode, Encode};
 use crate::parse::byteparser::{ParseResult, Parser};
 use std::fmt::Debug;
@@ -55,8 +56,8 @@ where
 }
 
 impl<T: Encode + Decode + Estimable + Debug> Encode for AutoBox<T> {
-    fn write(&self, buf: &mut Vec<u8>) {
-        T::write(self._box.as_ref(), buf)
+    fn write_to<U: Target>(&self, buf: &mut U) -> usize {
+        T::write_to(self._box.as_ref(), buf)
     }
 }
 

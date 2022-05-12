@@ -135,8 +135,8 @@ pub type i31 = RangedInt<i32, -0x4000_0000i32, 0x3fff_ffffi32>;
 macro_rules! impl_encode_words {
     ($a:ty) => {
         impl Encode for $a {
-            fn write(&self, buf: &mut Vec<u8>) {
-                buf.extend(self.to_be_bytes());
+            fn write_to<U: $crate::conv::target::Target>(&self, buf: &mut U) -> usize {
+                buf.push_all(&self.to_be_bytes())
             }
         }
     };
@@ -211,7 +211,7 @@ where
     I: Integral + Encode,
     <I as TryFrom<i64>>::Error: std::fmt::Debug,
 {
-    fn write(&self, buf: &mut Vec<u8>) {
+    fn write_to<U: crate::conv::target::Target>(&self, buf: &mut U) -> usize {
         let enc_val: I = if MIN > 0 {
             let val: i64 = (*self).val.into();
             let min: i64 = MIN.into();
@@ -219,7 +219,7 @@ where
         } else {
             (*self).val
         };
-        enc_val.write(buf)
+        enc_val.write_to(buf)
     }
 }
 
@@ -256,7 +256,7 @@ where
 
 #[cfg(test)]
 mod tests {
-    use crate::builder::{owned::OwnedBuilder, Builder};
+    use crate::builder::{strict::StrictBuilder, Builder};
     use crate::hex;
 
     use super::*;
@@ -266,7 +266,7 @@ mod tests {
         U: Encode + Decode + std::cmp::PartialEq + std::fmt::Debug,
     {
         for (u, enc) in table.iter() {
-            assert_eq!(enc.to_owned(), u.encode::<OwnedBuilder>().into_hex());
+            assert_eq!(enc.to_owned(), u.encode::<StrictBuilder>().into_hex());
             assert_eq!(U::decode(hex!(*enc)), *u);
         }
     }

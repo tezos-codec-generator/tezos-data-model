@@ -21,6 +21,7 @@ impl LengthMismatchError {
 }
 
 pub mod bytestring {
+    use crate::conv::target::Target;
     use crate::conv::{len, Decode, Encode};
     use crate::parse::byteparser::ParseResult;
     use crate::parse::byteparser::Parser;
@@ -39,8 +40,8 @@ pub mod bytestring {
     }
 
     impl<const N: usize> Encode for ByteString<N> {
-        fn write(&self, buf: &mut Vec<u8>) {
-            buf.extend(self.0)
+        fn write_to<U: Target>(&self, buf: &mut U) -> usize {
+            buf.push_all(&self.0)
         }
     }
 
@@ -54,7 +55,7 @@ pub mod bytestring {
     mod tests {
         use super::*;
         use crate::{
-            builder::{owned::OwnedBuilder, Builder},
+            builder::{strict::StrictBuilder, Builder},
             hex,
         };
 
@@ -63,7 +64,7 @@ pub mod bytestring {
             let hex = hex!("deadbeef");
             let b = ByteString::<4>::decode(hex);
             assert_eq!(b, ByteString([0xde, 0xad, 0xbe, 0xef]));
-            assert_eq!(b.encode::<OwnedBuilder>().into_hex(), "deadbeef");
+            assert_eq!(b.encode::<StrictBuilder>().into_hex(), "deadbeef");
         }
 
         #[test]
@@ -71,7 +72,7 @@ pub mod bytestring {
             let b = ByteString::<12>::decode(b"hello world!");
             assert_eq!(b, ByteString::from(b"hello world!"));
             assert_eq!(
-                b.encode::<OwnedBuilder>().into_bin().unwrap(),
+                b.encode::<StrictBuilder>().into_bin().unwrap(),
                 "hello world!"
             );
         }
@@ -81,6 +82,7 @@ pub mod bytestring {
 pub mod charstring {
     use std::convert::TryInto;
 
+    use crate::conv::target::Target;
     use crate::conv::{len, Decode, Encode};
     use crate::parse::byteparser::{ParseResult, Parser};
 
@@ -125,8 +127,8 @@ pub mod charstring {
     }
 
     impl<const N: usize> Encode for CharString<N> {
-        fn write(&self, buf: &mut Vec<u8>) {
-            buf.extend(self.contents)
+        fn write_to<U: Target>(&self, buf: &mut U) -> usize {
+            buf.push_all(&self.contents)
         }
     }
 
@@ -137,7 +139,7 @@ pub mod charstring {
     }
     #[cfg(test)]
     mod tests {
-        use crate::{builder::owned::OwnedBuilder, Builder, StrictBuilder};
+        use crate::{Builder, StrictBuilder};
         use std::{borrow::Borrow, convert::TryFrom};
 
         use super::*;
@@ -145,7 +147,7 @@ pub mod charstring {
         fn check_str<const N: usize>(case: &'static str) {
             let res = CharString::<N>::decode(case);
             assert_eq!(res, CharString::try_from(case).unwrap());
-            assert_eq!(res.encode::<OwnedBuilder>().into_bin().unwrap(), case);
+            assert_eq!(res.encode::<StrictBuilder>().into_bin().unwrap(), case);
         }
 
         fn check_arr<const N: usize>(case: &[u8; N]) {

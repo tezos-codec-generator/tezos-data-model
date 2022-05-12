@@ -18,69 +18,55 @@
 //! Derive macros for Encode, Decode, and even Estimable are provided in the sub-crates `encode_derive`,
 //! `decode_derive`, and `estimable_derive`, which are only relevant within the context of this runtime.
 
-use crate::builder::{Builder, TransientBuilder};
-use crate::parse::byteparser::{Parser, ToParser, ParseResult};
+use crate::parse::byteparser::{ParseResult, Parser, ToParser};
+
+use self::target::Target;
 
 pub mod len;
+pub mod target;
+
 /// Trait that marks a type as having a known binary encoding scheme in the `data-encoding` OCaml library,
 /// and provides methods for serializing values of that type to various destination objects.
 ///
 /// While only the [`write`] method is required, `to_bytes` and `encode` may be inefficient for certain
 /// types, and their default implementation should be overwritten if appropriate.
 pub trait Encode {
-    /// Append the bytes of the serialized form of `self` to the end of the provided `Vec<u8>` buffer.
-    ///
-    /// This method allows for sequential or nested components of a complex type to be written directly
-    /// into the existing buffer containing the serialized bytes of all preceding fragments, without
-    /// having to allocate new heap memory (except if the vector cannot be extended in-place upon reaching
-    /// its capacity)
+    /// Append the bytes of the serialized form of `self` to the end of the provided `Target` type.
     ///
     /// The natural definition of this method is structurally inductive on the physical or virtual fields
     /// of the type in question, in conformance with the serialization format defined by `data-encoding`.
     ///
-    /// In principle, it is possible to redefine this method so that it operates on any `Writer` object rather
-    /// than merely on `Vec<u8>`. The merits of this strategy will be evaluated and a decision on the correct
-    /// approach will be rendered in due course.
-    fn write(&self, buf: &mut Vec<u8>);
-
-    /// Variant of [`write`] that can accept non-vector targets.
+    /// Sequential calls to this method are intended to operate on the same underlying Target, rather
+    /// than separate Target objects that are later concatenated.
     ///
-    /// The default implementation is somewhat inefficient, as it
-    /// requires a two-pass approach of calling [`write`] on an
-    /// empty vector and using [`std::io::Write::write_all`] to copy
-    /// the serialized bytes from the vector using `std::io::copy`.
-    fn write_any<W: std::io::Write>(&self, buf: &mut W) -> std::io::Result<u64> {
-        let mut temp = Vec::new();
-        self.write(&mut temp);
-        std::io::copy(&mut &*temp as &mut &[u8], buf)
+    fn write_to<U: Target>(&self, buf: &mut U) -> usize;
+
+    /// Variant of [`write_to`] that is specialized to `Vec<u8>`.
+    fn write_to_vec(&self, buf: &mut Vec<u8>) {
+        let _ = self.write_to(buf);
+        return;
     }
 
-    /// Create a new buffer and call `self.write` on it
+    fn encode<U: Target>(&self) -> U {
+        let mut tgt: U = U::create();
+        self.write_to(&mut tgt);
+        tgt
+    }
+
     fn to_bytes(&self) -> Vec<u8> {
-        let mut buf = Vec::new();
-        self.write(&mut buf);
-        buf
-    }
-
-    fn encode<U: Builder>(&self) -> U {
-        self.to_bytes().into()
+        self.encode::<Vec<u8>>()
     }
 }
 
 pub trait EncodeLength: Encode {
     fn enc_len(&self) -> usize {
-        eprintln!("Warning: inefficient EncodeLength::enc_len() call on type {}!", std::any::type_name::<Self>());
-        self.to_bytes().len()
+        self.write_to(&mut std::io::sink())
     }
 
     fn to_bytes_full(&self) -> Vec<u8> {
         let mut buf = Vec::with_capacity(self.enc_len());
-        self.write(&mut buf);
+        self.write_to(&mut buf);
         buf
-    }
-
-    fn lazy_encode<'a, U>(&'a self) -> U where U: TransientBuilder<'a> + 'a {
-        U::delayed(move |buf| Encode::write(self, buf), self.enc_len())
     }
 }
 
@@ -92,20 +78,24 @@ impl<T: Encode + len::Estimable + ?Sized> EncodeLength for T {
 
 pub trait Decode {
     fn parse<P: Parser>(p: &mut P) -> ParseResult<Self>
-    where Self: Sized;
+    where
+        Self: Sized;
 
     fn decode<U: ToParser>(inp: U) -> Self
     where
         Self: Sized,
     {
         let mut p = inp.to_parser();
-        Self::parse(&mut p).expect(&format!("<{} as Decode>::decode: unable to parse value (ParseError encountered): ", std::any::type_name::<Self>()))
+        Self::parse(&mut p).expect(&format!(
+            "<{} as Decode>::decode: unable to parse value (ParseError encountered): ",
+            std::any::type_name::<Self>()
+        ))
     }
 }
 
 impl Encode for Vec<u8> {
-    fn write(&self, buf: &mut Vec<u8>) {
-        buf.extend(self)
+    fn write_to<U: Target>(&self, buf: &mut U) -> usize {
+        buf.push_all(&self)
     }
 }
 
@@ -116,14 +106,14 @@ impl Decode for Vec<u8> {
 }
 
 impl Encode for &str {
-    fn write(&self, buf: &mut Vec<u8>) {
-        buf.extend(self.bytes())
+    fn write_to<U: Target>(&self, buf: &mut U) -> usize {
+        buf.push_all(self.as_bytes())
     }
 }
 
 impl Encode for String {
-    fn write(&self, buf: &mut Vec<u8>) {
-        buf.extend(self.bytes())
+    fn write_to<W: Target>(&self, buf: &mut W) -> usize {
+        buf.push_all(self.as_bytes())
     }
 }
 
@@ -136,15 +126,10 @@ impl Decode for String {
 }
 
 impl<T: Encode> Encode for Option<T> {
-    fn write(&self, buf: &mut Vec<u8>) {
+    fn write_to<U: Target>(&self, buf: &mut U) -> usize {
         match self {
-            Some(val) => {
-                buf.push(0xff);
-                val.write(buf);
-            }
-            None => {
-                buf.push(0x00);
-            }
+            Some(val) => buf.push_one(0xff) + val.write_to(buf),
+            None => buf.push_one(0x00),
         }
     }
 }
@@ -161,15 +146,13 @@ impl<T: Decode> Decode for Option<T> {
 
 #[cfg(test)]
 mod test {
-    use crate::{Builder, LazyBuilder};
-
-    use super::EncodeLength;
+    use crate::{Builder, StrictBuilder, Encode};
 
     #[test]
     fn check() {
         assert_eq!(
             "foo"
-                .lazy_encode::<LazyBuilder>()
+                .encode::<StrictBuilder>()
                 .finalize()
                 .into_bin()
                 .unwrap(),

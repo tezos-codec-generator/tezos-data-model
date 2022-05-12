@@ -3,7 +3,7 @@
 //! validated (i.e. fallible) conversions from [`str`]-based types (e.g. `String`)
 
 use super::error::ConvError::{self, HexError, ParityError};
-use crate::{builder::Builder, util::hex_of_bytes};
+use crate::{builder::Builder, util::hex_of_bytes, conv::target::Target};
 use std::{borrow::Borrow, convert::TryFrom, iter::FromIterator, vec::IntoIter};
 
 /// Newtype representing byte-arrays that are parsed from and displayed as
@@ -95,6 +95,42 @@ impl FromIterator<u8> for HexString {
         Self {
             words: iter.into_iter().collect::<Vec<u8>>(),
         }
+    }
+}
+
+impl std::io::Write for HexString {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.words.write(buf)
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.words.flush()
+    }
+}
+
+impl Target for HexString {
+    fn anticipate(&mut self, extra: usize) {
+        self.words.anticipate(extra)
+    }
+
+    fn create() -> Self {
+        HexString { words: Vec::new() }
+    }
+
+    fn push_one(&mut self, b: u8) -> usize {
+        self.words.push_one(b)
+    }
+
+    fn push_many<const N: usize>(&mut self, arr: [u8; N]) -> usize {
+        self.words.push_many(arr)
+    }
+
+    fn push_all(&mut self, buf: &[u8]) -> usize {
+        self.words.push_all(buf)
+    }
+
+    fn resolve(&mut self) {
+        self.words.resolve()
     }
 }
 

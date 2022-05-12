@@ -1,9 +1,12 @@
+use crate::conv::target::Target;
 use crate::conv::{Decode, Encode};
 use crate::parse::byteparser::ParseResult;
 use crate::Parser;
 
 impl Encode for () {
-    fn write(&self, _: &mut Vec<u8>) {}
+    fn write_to<U: Target>(&self, _: &mut U) -> usize {
+        0
+    }
 }
 
 impl Decode for () {
@@ -13,11 +16,11 @@ impl Decode for () {
 }
 
 impl Encode for bool {
-    fn write(&self, buf: &mut Vec<u8>) {
-        buf.push(match self {
+    fn write_to<U: Target>(&self, buf: &mut U) -> usize {
+        buf.push_one(match self {
             &true => 0xff,
             &false => 0x00,
-        });
+        })
     }
 }
 

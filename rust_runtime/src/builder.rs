@@ -1,6 +1,8 @@
 use std::{borrow::Borrow, string::FromUtf8Error};
 
+use crate::conv::target::Target;
 use crate::util::hex_of_bytes;
+use std::ops::{Add, AddAssign};
 
 /// Builder: Serialization Target Object Abstraction
 ///
@@ -9,7 +11,7 @@ use crate::util::hex_of_bytes;
 /// or a raw binary string
 pub trait Builder
 where
-    Self: std::ops::Add<Self, Output = Self> + std::ops::AddAssign<Self> + Sized + From<Vec<u8>>,
+    Self: Add<Self, Output = Self> + AddAssign<Self> + Sized + From<Vec<u8>> + Target,
 {
     type Segment;
     type Final: Into<Vec<u8>>;
@@ -47,16 +49,5 @@ where
     fn len(&self) -> usize;
 }
 
-pub trait TransientBuilder<'a>: Builder {
-    /// Construct a Builder object from a closure that writes data to a vector
-    fn delayed(mut f: impl 'a + FnMut(&mut Vec<u8>), _len: usize) -> Self {
-        let mut raw = Vec::new();
-        f(&mut raw);
-        raw.into()
-    }
-}
-
-pub mod lazy;
-pub mod owned;
-pub mod strict;
 pub mod memo;
+pub mod strict;

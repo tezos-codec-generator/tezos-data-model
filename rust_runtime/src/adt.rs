@@ -197,6 +197,7 @@ macro_rules! data {
             #![allow(non_camel_case_types)]
             use super::*;
             use $crate::FixedLength;
+            use $crate::Target;
             $(
                 $crate::structify!(derive(Encode,Decode,Estimable,Debug,Clone,PartialEq,Eq,PartialOrd,Ord), $vname, $vspec);
             )+
@@ -222,15 +223,14 @@ macro_rules! data {
         }
 
         impl $crate::Encode for $name {
-            fn write(&self, buf: &mut Vec<u8>) {
+            fn write_to<U: $crate::Target>(&self, buf: &mut U) -> usize{
                 match self {
                     $(
                         $name::$vname(inner) => {
-                            <$backer>::write(&$disc, buf);
-                            <$payload::$vname>::write(inner, buf);
+                            <$backer>::write_to(&$disc, buf) + <$payload::$vname>::write_to(inner, buf)
                         }
                     )+
-                };
+                }
             }
         }
 

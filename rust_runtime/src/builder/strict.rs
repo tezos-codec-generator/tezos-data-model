@@ -1,6 +1,6 @@
 use std::{borrow::Borrow, ops::{Add, AddAssign}};
 
-use super::TransientBuilder;
+use crate::conv::target::Target;
 
 #[derive(PartialEq, Eq, PartialOrd, Ord, Clone)]
 pub struct StrictBuilder(Vec<u8>);
@@ -45,6 +45,41 @@ impl AddAssign<Self> for StrictBuilder {
     }
 }
 
+impl std::io::Write for StrictBuilder {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.0.write(buf)
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.0.flush()
+    }
+}
+
+impl Target for StrictBuilder {
+    fn anticipate(&mut self, extra: usize) {
+        self.0.anticipate(extra)
+    }
+
+    fn push_one(&mut self, b: u8) -> usize {
+        self.0.push_one(b)
+    }
+
+    fn push_all(&mut self, buf: &[u8]) -> usize {
+        self.0.push_all(buf)
+    }
+
+    fn resolve(&mut self) {
+        self.0.resolve()
+    }
+
+    fn push_many<const N: usize>(&mut self, arr: [u8; N]) -> usize {
+        self.0.push_many(arr)
+    }
+
+    fn create() -> Self {
+        Self(Vec::create())
+    }
+}
 
 
 impl crate::Builder for StrictBuilder {
@@ -72,5 +107,3 @@ impl crate::Builder for StrictBuilder {
         Vec::len(&self.0)
     }
 }
-
-impl TransientBuilder<'_> for StrictBuilder {}

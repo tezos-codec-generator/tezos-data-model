@@ -26,14 +26,6 @@ features = ["integer"]
 criterion = "0.3"
 
 [[bench]]
-name = "zarith_bench"
-harness = false
-
-[[bench]]
-name = "builder_bench"
-harness = false
-
-[[bench]]
 name = "parser_bench"
 harness = false
 

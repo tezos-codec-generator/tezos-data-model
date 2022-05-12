@@ -1,52 +1,13 @@
 use std::{
-    borrow::Borrow,
-    collections::LinkedList,
     ops::{Add, AddAssign},
 };
 
-use super::{Builder, TransientBuilder};
+use crate::{conv::target::Target, internal::SplitVec};
 
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub struct MemoSegment(Vec<u8>);
-
-impl IntoIterator for MemoSegment {
-    type Item = u8;
-
-    type IntoIter = std::vec::IntoIter<u8>;
-
-    fn into_iter(self) -> Self::IntoIter {
-        self.0.into_iter()
-    }
-}
-
-impl Borrow<[u8]> for MemoSegment {
-    fn borrow(&self) -> &[u8] {
-        self.0.borrow()
-    }
-}
-
-impl Into<Vec<u8>> for MemoSegment {
-    fn into(self) -> Vec<u8> {
-        self.0
-    }
-}
-
-impl From<Vec<u8>> for MemoSegment {
-    fn from(buf: Vec<u8>) -> Self {
-        Self(buf)
-    }
-}
-
-impl From<&[u8]> for MemoSegment {
-    fn from(buf: &[u8]) -> Self {
-        Self(buf.into())
-    }
-}
-
-#[derive(PartialEq, Eq, PartialOrd, Ord, Clone)]
+use super::Builder;
+#[derive(Clone)]
 pub struct MemoBuilder {
-    totlen: usize,
-    segs: LinkedList<MemoSegment>,
+    segs: SplitVec<u8>,
 }
 
 impl std::fmt::Debug for MemoBuilder {
@@ -59,15 +20,14 @@ impl std::fmt::Debug for MemoBuilder {
 
 impl Into<Vec<u8>> for MemoBuilder {
     fn into(self) -> Vec<u8> {
-        self.segs.into_iter().flatten().collect()
+        self.segs.forget()
     }
 }
 
 impl From<Vec<u8>> for MemoBuilder {
     fn from(buf: Vec<u8>) -> Self {
         Self {
-            totlen: buf.len(),
-            segs: LinkedList::from([buf.into()]),
+            segs: SplitVec::promote_vec(buf),
         }
     }
 }
@@ -81,20 +41,16 @@ impl From<&[u8]> for MemoBuilder {
 impl Add<Self> for MemoBuilder {
     type Output = Self;
 
-    fn add(self, mut rhs: Self) -> Self::Output {
+    fn add(self, rhs: Self) -> Self::Output {
         let mut buf = self.segs;
-        buf.append(&mut rhs.segs);
-        Self {
-            totlen: self.totlen + rhs.totlen,
-            segs: buf,
-        }
+        buf.concat(rhs.segs);
+        Self { segs: buf }
     }
 }
 
 impl AddAssign<Self> for MemoBuilder {
-    fn add_assign(&mut self, mut rhs: Self) {
-        self.totlen += rhs.totlen;
-        self.segs.append(&mut rhs.segs);
+    fn add_assign(&mut self, rhs: Self) {
+        self.segs.concat(rhs.segs);
     }
 }
 
@@ -102,6 +58,15 @@ impl AddAssign<Self> for MemoBuilder {
 pub struct MemoBuffer {
     lens: Vec<usize>,
     buf: Vec<u8>,
+}
+
+impl From<SplitVec<u8>> for MemoBuffer {
+    fn from(val: SplitVec<u8>) -> Self {
+        Self {
+            lens: val.spans.into_iter().collect(),
+            buf: val.buffer,
+        }
+    }
 }
 
 impl Into<Vec<u8>> for MemoBuffer {
@@ -132,15 +97,81 @@ impl std::fmt::Display for MemoBuffer {
     }
 }
 
+impl std::io::Write for MemoBuilder {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        let ret = buf.len();
+
+        self.segs.extend_current(buf.iter().copied());
+
+        Ok(ret)
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+
+    fn write_all(&mut self, mut buf: &[u8]) -> std::io::Result<()> {
+        if !buf.is_empty() {
+            self.segs.split()
+        };
+        while !buf.is_empty() {
+            match self.write(buf) {
+                Ok(0) => {
+                    panic!("failed to write whole buffer");
+                }
+                Ok(n) => buf = &buf[n..],
+                Err(ref e) if e.kind() == std::io::ErrorKind::Interrupted => {}
+                Err(e) => return Err(e),
+            }
+        }
+        Ok(())
+    }
+}
+
+impl Target for MemoBuilder {
+    #[inline]
+    fn anticipate(&mut self, n: usize) {
+        self.segs.buffer.reserve_exact(n)
+    }
+
+    #[inline]
+    fn push_one(&mut self, b: u8) -> usize {
+        self.segs.push_current(b);
+        1
+    }
+
+    #[inline]
+    fn push_all(&mut self, buf: &[u8]) -> usize {
+        let l = buf.len();
+        self.segs.extend_current(buf.iter().copied());
+        l
+    }
+
+    fn resolve(&mut self) {
+        self.segs.split();
+    }
+
+    fn push_many<const N: usize>(&mut self, arr: [u8; N]) -> usize {
+        self.segs.extend_current(arr.iter().copied());
+        N
+    }
+
+    #[inline]
+    fn create() -> Self {
+        Self {
+            segs: SplitVec::new(),
+        }
+    }
+}
+
 impl Builder for MemoBuilder {
-    type Segment = MemoSegment;
+    type Segment = Vec<u8>;
 
     type Final = MemoBuffer;
 
     fn promote(seg: Self::Segment) -> Self {
         Self {
-            totlen: seg.0.len(),
-            segs: LinkedList::from([seg]),
+            segs: SplitVec::promote_vec(seg),
         }
     }
 
@@ -153,18 +184,10 @@ impl Builder for MemoBuilder {
     }
 
     fn finalize(self) -> Self::Final {
-        let mut lens: Vec<usize> = Vec::with_capacity(self.segs.len());
-        let mut buf: Vec<u8> = Vec::with_capacity(self.totlen);
-        for seg in self.segs {
-            lens.push(seg.0.len());
-            buf.extend(seg.0.iter());
-        }
-        MemoBuffer { lens, buf }
+        self.segs.into()
     }
 
     fn len(&self) -> usize {
-        self.totlen
+        self.segs.buffer.len()
     }
 }
-
-impl TransientBuilder<'_> for MemoBuilder {}
