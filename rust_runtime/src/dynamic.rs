@@ -66,7 +66,7 @@ impl<S: LenPref, T: EncodeLength> Encode for Dynamic<S, T> {
         let l : usize = self.contents.enc_len();
         if let Ok(lp) = l.try_into() {
             buf.anticipate(l + <S as EncodeLength>::enc_len(&lp));
-            lp.write_to(buf) + self.contents.write_to(buf)
+            crate::write_all_to!(lp, self.contents => buf)
         } else {
             panic!(
                 "Dynamic<{}, _>: Length prefix {} exceeds bounds of associated type",

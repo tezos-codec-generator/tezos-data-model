@@ -136,7 +136,7 @@ macro_rules! impl_encode_words {
     ($a:ty) => {
         impl Encode for $a {
             fn write_to<U: $crate::conv::target::Target>(&self, buf: &mut U) -> usize {
-                buf.push_all(&self.to_be_bytes())
+                buf.push_all(&self.to_be_bytes()) + crate::resolve_zero!(buf)
             }
         }
     };
@@ -219,7 +219,7 @@ where
         } else {
             (*self).val
         };
-        enc_val.write_to(buf)
+        enc_val.write_to(buf) + crate::resolve_zero!(buf)
     }
 }
 

@@ -227,7 +227,7 @@ macro_rules! data {
                 match self {
                     $(
                         $name::$vname(inner) => {
-                            <$backer>::write_to(&$disc, buf) + <$payload::$vname>::write_to(inner, buf)
+                            $crate::write_all_to!($disc, inner => buf)
                         }
                     )+
                 }

@@ -20,7 +20,7 @@ fn impl_encode(ast: &syn::DeriveInput) -> TokenStream {
             syn::Fields::Unit => {
                 quote! {
                     impl Encode for #name {
-                        fn write_to<U: Target>(&self, _: &mut U) -> usize { 0 }
+                        fn write_to<U: Target>(&self, buf: &mut U) -> usize { buf.resolve(); 0 }
                     }
                 }
             },
@@ -29,7 +29,7 @@ fn impl_encode(ast: &syn::DeriveInput) -> TokenStream {
                 quote! {
                     impl Encode for #name {
                         fn write_to<U: Target>(&self, buf: &mut U) -> usize {
-                            #( self.#i.write_to(buf) )+*
+                            #( self.#i.write_to(buf) + )* { buf.resolve(); 0 }
                         }
                     }
                 }
@@ -38,8 +38,8 @@ fn impl_encode(ast: &syn::DeriveInput) -> TokenStream {
                 let ident = named.iter().map(|field| field.ident.as_ref().unwrap());
                 quote! {
                     impl Encode for #name {
-                        fn write_to<U: Target>(&self, buf: &mut U) -> usize{
-                            #( self.#ident.write_to(buf) )+*
+                        fn write_to<U: Target>(&self, buf: &mut U) -> usize {
+                            #( self.#ident.write_to(buf) + )* { buf.resolve(); 0 }
                         }
                     }
                 }

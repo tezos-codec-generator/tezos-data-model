@@ -41,7 +41,7 @@ pub mod bytestring {
 
     impl<const N: usize> Encode for ByteString<N> {
         fn write_to<U: Target>(&self, buf: &mut U) -> usize {
-            buf.push_all(&self.0)
+            buf.push_all(&self.0) + crate::resolve_zero!(buf)
         }
     }
 
@@ -128,7 +128,7 @@ pub mod charstring {
 
     impl<const N: usize> Encode for CharString<N> {
         fn write_to<U: Target>(&self, buf: &mut U) -> usize {
-            buf.push_all(&self.contents)
+            buf.push_all(&self.contents) + crate::resolve_zero!(buf)
         }
     }
 

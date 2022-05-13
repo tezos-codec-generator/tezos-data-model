@@ -19,7 +19,7 @@ impl<T, const N: usize> Deref for Padded<T, N> {
 
 impl<T: Encode, const N: usize> Encode for Padded<T, N> {
     fn write_to<U: Target>(&self, buf: &mut U) -> usize {
-        self.0.write_to(buf) + buf.push_all(&[0; N])
+        self.0.write_to(buf) + buf.push_all(&[0; N]) + crate::resolve_zero!(buf)
     }
 }
 
@@ -146,7 +146,7 @@ impl<T: len::Estimable, const N: usize> len::Estimable for FixSeq<T, N> {
 
 impl<T: Encode, const N: usize> Encode for FixSeq<T, N> {
     fn write_to<U: Target>(&self, buf: &mut U) -> usize {
-        self.0.iter().map(|item| item.write_to(buf)).sum()
+        self.0.iter().map(|item| item.write_to(buf)).sum::<usize>() + crate::resolve_zero!(buf)
     }
 }
 
@@ -214,7 +214,7 @@ impl<T: len::Estimable, const N: usize> len::Estimable for LimSeq<T, N> {
 
 impl<T: Encode, const N: usize> Encode for LimSeq<T, N> {
     fn write_to<U: Target>(&self, buf: &mut U) -> usize {
-        self.0.iter().map(|item| item.write_to(buf)).sum()
+        self.0.iter().map(|item| item.write_to(buf)).sum::<usize>() + crate::resolve_zero!(buf)
     }
 }
 
@@ -279,7 +279,7 @@ impl<T: len::Estimable> len::Estimable for Sequence<T> {
 
 impl<T: Encode> Encode for Sequence<T> {
     fn write_to<U: Target>(&self, buf: &mut U) -> usize {
-        self.0.iter().map(|item| item.write_to(buf)).sum()
+        self.0.iter().map(|item| item.write_to(buf)).sum::<usize>() + crate::resolve_zero!(buf)
     }
 }
 

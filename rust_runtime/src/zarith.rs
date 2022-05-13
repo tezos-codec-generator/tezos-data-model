@@ -11,7 +11,7 @@ macro_rules! impl_zarith {
     ($x:ident) => {
         impl $crate::Encode for $x {
             fn write_to<U: $crate::conv::target::Target>(&self, buf: &mut U) -> usize {
-                buf.push_all(&mut <$x as $crate::zarith::Zarith>::serialize(self))
+                buf.push_all(&mut <$x as $crate::zarith::Zarith>::serialize(self)) + $crate::resolve_zero!(buf)
             }
         }
 

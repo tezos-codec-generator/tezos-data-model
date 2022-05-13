@@ -57,7 +57,7 @@ where
 
 impl<T: Encode + Decode + Estimable + Debug> Encode for AutoBox<T> {
     fn write_to<U: Target>(&self, buf: &mut U) -> usize {
-        T::write_to(self._box.as_ref(), buf)
+        crate::write_all_to!(self._box.as_ref() => buf)
     }
 }
 

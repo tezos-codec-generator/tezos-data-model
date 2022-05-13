@@ -25,6 +25,17 @@ use self::target::Target;
 pub mod len;
 pub mod target;
 
+#[macro_export]
+macro_rules! write_all_to {
+    ( $($x:expr),* $(,)? => $tgt:expr ) => {
+        {
+            let tmp : usize = $( $x.write_to($tgt) + )* 0;
+            $crate::Target::resolve($tgt);
+            tmp
+        }
+    };
+}
+
 /// Trait that marks a type as having a known binary encoding scheme in the `data-encoding` OCaml library,
 /// and provides methods for serializing values of that type to various destination objects.
 ///
@@ -49,7 +60,7 @@ pub trait Encode {
 
     fn encode<U: Target>(&self) -> U {
         let mut tgt: U = U::create();
-        self.write_to(&mut tgt);
+        write_all_to!(self => &mut tgt);
         tgt
     }
 
@@ -95,7 +106,7 @@ pub trait Decode {
 
 impl Encode for Vec<u8> {
     fn write_to<U: Target>(&self, buf: &mut U) -> usize {
-        buf.push_all(&self)
+        buf.push_all(&self) + crate::resolve_zero!(buf)
     }
 }
 
@@ -107,13 +118,13 @@ impl Decode for Vec<u8> {
 
 impl Encode for &str {
     fn write_to<U: Target>(&self, buf: &mut U) -> usize {
-        buf.push_all(self.as_bytes())
+        buf.push_all(self.as_bytes()) + crate::resolve_zero!(buf)
     }
 }
 
 impl Encode for String {
     fn write_to<W: Target>(&self, buf: &mut W) -> usize {
-        buf.push_all(self.as_bytes())
+        buf.push_all(self.as_bytes()) + crate::resolve_zero!(buf)
     }
 }
 
@@ -127,10 +138,10 @@ impl Decode for String {
 
 impl<T: Encode> Encode for Option<T> {
     fn write_to<U: Target>(&self, buf: &mut U) -> usize {
-        match self {
+        (match self {
             Some(val) => buf.push_one(0xff) + val.write_to(buf),
             None => buf.push_one(0x00),
-        }
+        }) + crate::resolve_zero!(buf)
     }
 }
 
@@ -146,7 +157,7 @@ impl<T: Decode> Decode for Option<T> {
 
 #[cfg(test)]
 mod test {
-    use crate::{Builder, StrictBuilder, Encode};
+    use crate::{Builder, Encode, StrictBuilder};
 
     #[test]
     fn check() {
