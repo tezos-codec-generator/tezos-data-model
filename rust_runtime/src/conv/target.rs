@@ -79,6 +79,11 @@ pub trait Target {
 }
 
 #[macro_export]
+/// Perform the associated `Target::resolve` call on the argument expression and return `0usize`
+///
+/// While this macro could instead be a method with a default implementation in `Target` itself,
+/// this approach guarantees that compiler logic is independent of implementation details of `Target`,
+/// as well as ensuring that `0` is invariably returned.
 macro_rules! resolve_zero {
     ( $x:expr ) => {
         { $x.resolve(); 0usize }
@@ -117,7 +122,7 @@ impl Target for ByteCounter {
 impl Target for Vec<u8> {
     #[inline]
     fn anticipate(&mut self, extra: usize) {
-        self.reserve_exact(extra)
+        self.reserve(extra)
     }
 
     fn create() -> Self {

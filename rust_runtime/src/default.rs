@@ -27,12 +27,11 @@ macro_rules! dft {
         }
 
         impl $crate::Encode for $id {
-            fn write(&self, buf: &mut Vec<u8>) {
+            fn write_to<U: $crate::Target>(&self, buf: &mut U) -> usize {
                 match &self.0 {
-                    x if *x == *$tmp => <Option<$t> as $crate::Encode>::write(&None, buf),
+                    x if *x == *$tmp => <Option<$t> as $crate::Encode>::write_to(&None, buf),
                     x => {
-                        buf.push(0xffu8);
-                        <$t as $crate::Encode>::write(x, buf);
+                        buf.push_one(0xffu8) + <$t as $crate::Encode>::write_to(x, buf)
                     }
                 }
             }

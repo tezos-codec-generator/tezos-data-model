@@ -80,7 +80,7 @@ pub use crate::fixed::{bytestring::ByteString, charstring::CharString};
 pub use crate::float::RangedFloat;
 pub use crate::int::{i31, u30, RangedInt};
 pub use crate::parse::{
-    byteparser::{ByteParser, ParseResult, Parser, ToParser},
+    byteparser::{ByteParser, MemoParser, ParseResult, Parser, ToParser},
     error::ParseError,
     hexstring::HexString,
 };

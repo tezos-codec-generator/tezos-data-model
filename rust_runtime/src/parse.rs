@@ -110,7 +110,7 @@ pub mod bytes {
 }
 
 pub mod byteparser {
-    use crate::internal::{BoundAwareMarker, ContextOffset, Marker, Stack};
+    use crate::internal::{BoundAwareMarker, ContextOffset, Marker, SplitVec, Stack};
     use crate::parse::error::InternalErrorKind;
 
     use super::bytes::{ByteSlice, OwnedBytes};
@@ -181,7 +181,7 @@ pub mod byteparser {
             self.len() - self.offset()
         }
 
-        /** Consumes the speficied number of bytes from buffer[nbytes]
+        /** Consumes and returns a slice of length `nbytes` starting from the current offset of the buffer.
          */
         fn consume(&mut self, nbytes: usize) -> ParseResult<&[u8]>;
 
@@ -383,6 +383,99 @@ pub mod byteparser {
         }
     }
 
+    pub struct MemoParser {
+        buffer: OwnedBytes,
+        offset: ContextOffset,
+        munches: Vec<usize>,
+    }
+
+    impl MemoParser {
+        /// Convert any type that can be potentially coerced into an `OwnedBytes` value into
+        /// a ByteParser over said buffer, with an empty stack of context windows and an offset
+        /// starting at index `0`.
+        pub fn parse<T>(input: T) -> ParseResult<Self>
+        where
+            OwnedBytes: TryFrom<T>,
+            <T as TryInto<OwnedBytes>>::Error: Into<ParseError>,
+        {
+            match OwnedBytes::try_from(input) {
+                Ok(buffer) => {
+                    let offset = ContextOffset::new(buffer.len());
+                    let munches = Vec::new();
+                    Ok(Self {
+                        buffer,
+                        offset,
+                        munches,
+                    })
+                }
+                Err(err) => Err(err.into()),
+            }
+        }
+    }
+
+    impl Iterator for MemoParser {
+        type Item = u8;
+
+        fn next(&mut self) -> Option<Self::Item> {
+            let (ix, adv) = self.offset.advance(1);
+            if adv {
+                self.munches.push(1);
+                Some(unsafe { self.buffer.get_word(ix) })
+            } else {
+                None
+            }
+        }
+    }
+
+    impl Parser for MemoParser {
+        fn len(&self) -> usize {
+            self.offset.lim()
+        }
+
+        fn offset(&self) -> usize {
+            self.offset.get()
+        }
+
+        fn set_fit(&mut self, n: usize) {
+            self.offset.set_fit(n)
+        }
+
+        fn test_target(&mut self) -> bool {
+            self.offset.test_target()
+        }
+
+        fn enforce_target(&mut self) {
+            self.offset.enforce_target()
+        }
+
+        fn consume(&mut self, nbytes: usize) -> ParseResult<&[u8]> {
+            let (ix, adv) = self.offset.advance(nbytes);
+            if adv {
+                self.munches.push(nbytes);
+                Ok(unsafe { self.buffer.get_slice(ix, nbytes) })
+            } else {
+                let offset = ix;
+                let mut splits = SplitVec::new();
+                let mut ix: usize = 0;
+                for &len in self.munches.iter() {
+                    unsafe {
+                        let tmp: &[u8] = self.buffer.get_slice(ix, len);
+                        splits.extend_current(tmp.iter().copied());
+                        splits.split();
+                    }
+                    ix += len;
+                }
+                eprintln!("{}", splits);
+
+                Err(ParseError::BufferOverflow {
+                    offset,
+                    requested: nbytes,
+                    buflen: self.buffer.len(),
+                })
+            }
+        }
+    }
+
     pub struct SliceParser<'a>(Vec<ByteSlice<'a>>);
 
     impl<'a> SliceParser<'a> {
@@ -532,6 +625,17 @@ pub mod byteparser {
             ByteParser::parse(self)
         }
     }
+
+    impl<T> ToParser<MemoParser> for T
+    where
+        OwnedBytes: TryFrom<T>,
+        <T as TryInto<OwnedBytes>>::Error: std::fmt::Display + Into<ParseError>,
+    {
+        fn into_parser(self) -> ParseResult<MemoParser> {
+            MemoParser::parse(self)
+        }
+    }
+
 
     impl<'a, T> ToParser<SliceParser<'a>> for T
     where

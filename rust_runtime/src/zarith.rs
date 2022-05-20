@@ -11,7 +11,8 @@ macro_rules! impl_zarith {
     ($x:ident) => {
         impl $crate::Encode for $x {
             fn write_to<U: $crate::conv::target::Target>(&self, buf: &mut U) -> usize {
-                buf.push_all(&mut <$x as $crate::zarith::Zarith>::serialize(self)) + $crate::resolve_zero!(buf)
+                buf.push_all(&mut <$x as $crate::zarith::Zarith>::serialize(self))
+                    + $crate::resolve_zero!(buf)
             }
         }
 
@@ -31,8 +32,14 @@ pub mod n {
     use num_bigint::BigUint;
     use rug::ops::DivRounding;
 
-    #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone)]
+    #[derive(PartialEq, Eq, PartialOrd, Ord, Clone)]
     pub struct N(pub BigUint);
+
+    impl std::fmt::Debug for N {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            write!(f, r#"ℕ({})"#, &self.0.to_string())
+        }
+    }
 
     impl Display for N {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
@@ -142,8 +149,14 @@ pub mod z {
     use num_bigint::{BigInt, BigUint, Sign};
     use rug::ops::DivRounding;
 
-    #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone)]
+    #[derive(PartialEq, Eq, PartialOrd, Ord, Clone)]
     pub struct Z(pub BigInt);
+
+    impl std::fmt::Debug for Z {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            write!(f, r#"ℤ({})"#, &self.0.to_string())
+        }
+    }
 
     impl Display for Z {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {

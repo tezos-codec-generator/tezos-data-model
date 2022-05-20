@@ -92,13 +92,34 @@ pub trait Decode {
     where
         Self: Sized;
 
-    fn decode<U: ToParser>(inp: U) -> Self
+    fn try_decode<U, P>(inp: U) -> ParseResult<Self>
     where
         Self: Sized,
+        P: Parser,
+        U: ToParser<P>,
     {
         let mut p = inp.to_parser();
-        Self::parse(&mut p).expect(&format!(
-            "<{} as Decode>::decode: unable to parse value (ParseError encountered): ",
+        Self::parse(&mut p)
+    }
+
+    fn decode_memo<U>(inp: U) -> Self
+    where
+        Self: Sized,
+        U: ToParser<crate::parse::byteparser::MemoParser>,
+    {
+        Self::try_decode(inp).expect(&format!(
+            "<{} as Decode>::decode_memo: unable to parse value (ParseError encountered)",
+            std::any::type_name::<Self>()
+        ))
+    }
+
+    fn decode<U>(inp: U) -> Self
+    where
+        Self: Sized,
+        U: ToParser,
+    {
+        Self::try_decode(inp).expect(&format!(
+            "<{} as Decode>::decode: unable to parse value (ParseError encountered)",
             std::any::type_name::<Self>()
         ))
     }

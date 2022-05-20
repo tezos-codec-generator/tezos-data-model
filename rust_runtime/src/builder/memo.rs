@@ -2,7 +2,7 @@ use std::{
     ops::{Add, AddAssign},
 };
 
-use crate::{conv::target::Target, internal::SplitVec};
+use crate::{conv::target::Target, internal::SplitVec, util::hex_of_bytes};
 
 use super::Builder;
 #[derive(Clone)]
@@ -90,7 +90,7 @@ impl std::fmt::Display for MemoBuffer {
         write!(f, "[|")?;
         let mut ls = self.lens.iter();
         while let Some(&l) = ls.next() {
-            write!(f, "{:#?}|", &buf[..l])?;
+            write!(f, "{}|", hex_of_bytes(&buf[..l]))?;
             buf = &buf[l..];
         }
         write!(f, "]")

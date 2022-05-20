@@ -1,41 +1,97 @@
 # `rust_runtime`
 
-This directory is a collection of `Rustlang` packages and crates that constitute the core API used by the generated `*.rs` codec-modules that `codec_generator` produces.
+The `rust_runtime` library crate contains the common utility code that generated Rustlang codec modules are built around.
 
-As the overall project evolves, the strucural layout of the toplevel and subordinate crates may change drastically, as too may the implementation details within the runtime API, along with the API itself.
+Also contained in this directory are sub-crates defining derive macros for three key traits in the runtime:
 
-This README is intended to act as a loose guide for the model and design approach of the `rust_runtime` crate and its associated subordinate crates, so that the impact of under-documentation in the Rust modules themselves is somewhat mitigated.
+- `decode_derive` for the `Decode` trait
+- `encode_derive` for the `Encode` trait
+- `estimable_derive` for the `Estimable` trait
+
+As the `codec_generator` project is not yet stable, both the design, API, and implementation specifics of this crate
+are subject to change at any point. On account of this, this readme may not always be up-to-date, and so reader
+discretion is advised.
+
+This README is intended to serve as a general guide for the model, and design approach, of the `rust_runtime` crate, rather
+than a comprehensive summary of the actual implementation.
 
 ## High-Level Approach
 
 The `rust_runtime` library crate is built around a model of structurally inductive transcoding using two traits:
 
-* `Encode` : at minimum, defines a method `encode` of type `(&self) -> X`, where X is a type suitable for byte-level concatenation and traversal. This may be just `Vec<u8>` or similar, a wrapper around such a builtin type, or even a generic type parameter satisfying certain trait bounds that ensure it is suitable for use as a byte-store.
-* `Decode` : at minimum, defines a method `decode` of type `(&X) -> Self`, where X is the type of incoming binary data to be parsed with byte-level precision. This may be just `Vec<u8>` or similar, a wrapper around such a builtin type,
-  or even a generic type parameter satisfying certain trait
-  bounds that ensure it is suitable for incremental parsing.
+- `Encode` :
+  Trait marking a type as serializable.
+  The most stable property of this trait is the definition of a method `encode` of type `(&self) -> X`, where `X` is some
+  type suited for the representation of variable-length strings of binary data.
+  This may either be a concrete type, or a generic-type satisfying particular trait bounds.
+- `Decode` :
+  Trait marking a type as deserializable.
+  The most stable property of this trait is the definition of a method `decode`of type `(&X) -> Self`, where `X` is some
+  type that can be interpreted as a sequence of byte-values, to be parsed in an incremental fashion.
+  This may either be a concrete type, or a generic-type satisfying particular trait bounds.
 
-These minimum details are unlikely to change, though the actual implementation of the traits themselves, with regard to which additional methods are required, and whether certain methods have default implementations with respect to lower-level methods, are subject to refactoring as the project grows.
+These essential details are unlikely to change, and even less likely to change drastically.
+Note that while the methods listed above are 'minimum requirements' in a design sense, at the level of
+the trait definition, it is safe to assume that the required set of implemented methods consists of
+some unspecified set of low-level methods, in terms of which `encode` and `decode` are given default implementations.
 
-Manual and blanket implementations of these traits for the majority of relevant `Rustlang` primitives, as well as for more complex `data-encoding`-specific schema types, are added according to the project milestones in the [main README](../README.md). Based on
-those atomic types, and combinatorial logic for incremental parsing and serialization of Product- and Sum-types, it is theoretically
-possible, once support for all of the possible `data-encoding` schema type AST nodes is modeled in the `runtime` logic, to define
-and use `Encode` and `Decode` methods over any OCaml type whose intended binary layout is expressible as a `Data_encoding.t` value.
+As of the time this README was last revised, all broad categories of
+Ocaml-based schemata (values of type `'a Data_encoding.Encoding.t`) are
+assumed to be covered by the logic of the compiler, in tandem with this
+runtime library. However, that does not mean that every schemata will
+be supported by the `codec_generator` pipeline, that the produced module
+will be free of errors, or that an error-free codec module will be bug-free
+and behave 'correctly' (i.e. equivalently to transcoding operations based directly
+in Ocaml and `data-encoding`).
 
 ## Internal Approach and Abstraction
 
 As of the current iteration of the `rust_runtime` library, the details of `Encode` and `Decode` are refined beyond the bare minimum methods listed above, and in turn rely on other definitions in the library to be used effectively. Those methods, and the constructs
 they rely upon, are listed below:
 
-* `Encode`:
-  * `write(&self, buf: &mut Vec<u8>) -> ()` : writes the byte-sequence corresponding to the codec-compatible serialization of `self` to a mutably borrowed byte-buffer. This is the lowest-level method, and the only one that is required for implementors to define.
-  * `to_bytes(&self) -> Vec<u8>` : returns a byte-sequence corresponding to the serialization of `self`. This method has a default implementation of allocating a new `Vec<u8>` which is passed into a call to `self.write`. In certain cases, such as when `self` is internally a byte-array or even a byte-vector, this definition may be overwritten with a `.clone()` or `.to_vec()` operation.
-  * `encode<U: Builder>(&self) -> U` : produces an object of the specified or compiler-inferred type `U` subject to the trait bounds of implementing an instance of [`Builder`](#builder). This has a default implementation using `to_bytes()`.
-* `Decode`:
-  * `parse<P: Parser>(p: &mut P) -> Self` : uses a mutably borrowed generic object of any type implementing the [`Parser`](#parser) trait, returning a value of type `Self` by consuming from the current parser-head until enough bytes have been read to deserialize; this method will panic if the parse operation internally called returns an `Err(ParseError)` value.
-  * `decode<U: ToParser>(input: &U) -> Self`: combined operation of constructing a `P: Parser` object from a [`ToParser`](#toparser) bounded generic, and calling `Self::parse` over the returned value (default implementaion). There is no compelling reason to override
+- `Encode`:
+  - `write_to<U: Target>(&self, buf: &mut U) -> usize` :
+    Appends the full sequence of bytes of the codec-compatible serialization of `self`, to the mutably borrowed destination object,
+    of a generic type bound by the trait [`Target`](#target), also defined in the runtime. The returned value is the total number of
+    bytes that were written by the call.
+    This is the lowest-level method, and the only one that is required for implementors to define.
+  - `write_to_vec(&self, buf: &mut Vec<u8>) -> ()` :
+    A variant of `write_to` specialized to `Vec<u8>`, without an informative return value. This method is given a default implementation
+    in terms of `write_to` through the included `impl Target for Vec<u8>` item, but can be overwritten if a more directly efficient
+    implementation is possible based on details of the `Self` type in question.
+  - `to_bytes(&self) -> Vec<u8>` :
+    An analogue of `write_to_vec` that returns a new `Vec<u8>` buffer rather than mutating an existing buffer passed in as an argument.
+    In most cases, the default implementation (which calls `Vec::new()` followed by `Self::write_to_vec`) is adequate. In certain cases, such as when `self` is either itself, or a shallow wrapper around, a byte-oriented buffer, this definition may be overwritten with a `.clone()` or `.to_vec()` operation or similar.
+  - `encode<U: Target>(&self) -> U` : produces an object of the specified or compiler-inferred type `U` subject to the trait bounds of implementing an instance of [`Target`](#target). This has a default implementation using `write_to()`.
+- `Decode`:
+  - `parse<P: Parser>(p: &mut P) -> Self` : uses a mutably borrowed generic object of any type implementing the [`Parser`](#parser) trait, returning a value of type `Self` by consuming from the current parser-head until enough bytes have been read to deserialize; this method will panic if the parse operation internally called returns an `Err(ParseError)` value.
+  - `decode<U: ToParser>(input: &U) -> Self`: combined operation of constructing a `P: Parser` object from a [`ToParser`](#toparser) bounded generic, and calling `Self::parse` over the returned value (default implementaion). There is no compelling reason to override
   the default implementation, as it is merely intended to avoid boilerplate and does not obviously introduce any unnecessary overhead
   in any known edge-cases.
+
+### Target
+
+The trait `Target` is an abstraction over types that store an in-order traversible sequence of bytes, which, once written, are never
+subsequently modified. In this way, it may be thought of as a specialized analogue of `std::io::Write`.
+
+The provided implementing types of `Target` are as follows:
+
+- `Vec<u8>`
+- `std::io::Sink` via type-alias `ByteCounter`
+- All implementors of [`Builder`](#builder), via a sub-trait bound
+
+The current implementation of `Target` consists of the following methods:
+
+- `anticipate(&mut self, extra: usize)`: Perform any amortizing operations under the assumption that at least `extra` more bytes will be written over an unknown number of individual method calls. The main use of this method is in the blanket implmentation over the schema-specific `Dynamic<S, T>` type, where the serialized byte-length of the contained value of type `T: Encode` is known in advance of the calls made to actually serialize it.
+- `create() -> Self`: Factory method to replace `Vec::new()` or `Builder::empty()` as appropriate
+- `push_one(&mut self, b: u8) -> usize`: Appends a single byte to the Target object. Will and must always return `1`.
+- `push_many<const N: usize>(&mut self, arr: [u8; N]) -> usize`: Appends a constant-length byte array, in order, to the Target object. Will and must always return `N`
+- `push_all(&mut self, b: &[u8]) -> usize`: Appends a byte-slice of unknown length to the Target object, in order. Will and must always return the length of the slice.
+- `resolve(&mut self)`: When applicable, indicate in some fashion that the current final index of the byte-sequence is a partition point between two logically distinct serialized values. Most of the time, this method will be a no-op.
+
+#### Target-related Macros
+
+In addition to the
 
 ### Builder
 
@@ -55,13 +111,13 @@ of the mutating parse-head for buffer-based implementations such as [`ByteParser
 
 The following properties should be respected by each implementation of the `Parser` trait:
 
-* A fresh `p : impl Parser` object should have `p.offset() == 0` and `p.len()` equal to the length of the parse-buffer
-* `self.len() - self.offset()` is the largest possible `n` for which `self.consume(n)` returns an `Ok(_)` value, which should also be the largest possible `n` for which `self.set_fit(n)` succeeds. Both should fail for any greater values of `n`, either through `Err(_)` returns or panics.
-* The value of `self.len() - self.offset()` before and after a call to `self.consume(n)` should represent a decrease by `n` if the consume call is an `Ok(_)` value, or remain unchanged if it is an `Err(_)` value. Only one of `self.len()` and `self.offset()` should change in this fashion.
-* `self.set_fit(m)` should fail whenever `self.len() < m + self.offset()`, and succeed otherwise
-* Immediately after a successful call of `self.set_fit(n)`, `self.len() == n + self.offset()` should hold.
-* `self.test_target()` should return `true` if and only if `self.offset() == self.len()` holds with at least one context window present
-* `self.enforce_target()` should remove the most recently set target if `self.test_target()` would return true, and panic otherwise
+- A fresh `p : impl Parser` object should have `p.offset() == 0` and `p.len()` equal to the length of the parse-buffer
+- `self.len() - self.offset()` is the largest possible `n` for which `self.consume(n)` returns an `Ok(_)` value, which should also be the largest possible `n` for which `self.set_fit(n)` succeeds. Both should fail for any greater values of `n`, either through `Err(_)` returns or panics.
+- The value of `self.len() - self.offset()` before and after a call to `self.consume(n)` should represent a decrease by `n` if the consume call is an `Ok(_)` value, or remain unchanged if it is an `Err(_)` value. Only one of `self.len()` and `self.offset()` should change in this fashion.
+- `self.set_fit(m)` should fail whenever `self.len() < m + self.offset()`, and succeed otherwise
+- Immediately after a successful call of `self.set_fit(n)`, `self.len() == n + self.offset()` should hold.
+- `self.test_target()` should return `true` if and only if `self.offset() == self.len()` holds with at least one context window present
+- `self.enforce_target()` should remove the most recently set target if `self.test_target()` would return true, and panic otherwise
 
 #### ByteParser
 

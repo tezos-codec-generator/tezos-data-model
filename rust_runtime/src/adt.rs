@@ -62,14 +62,14 @@ macro_rules! cstyle {
         }
 
         impl $crate::Encode for $name {
-            fn write(&self, buf: &mut Vec<u8>) {
+            fn write_to<U: $crate::Target>(&self, buf: &mut U) -> usize {
                 let tag : $backer = match self {
                     $(
                         $name::$vname => $vdisc
                     ),+
                 };
 
-                tag.write(buf);
+                tag.write_to(buf)
             }
         }
 
@@ -204,9 +204,19 @@ macro_rules! data {
         }
 
 
-        #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+        #[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
         pub enum $name {
             $( $vname($payload::$vname) ),+
+        }
+
+        impl std::fmt::Debug for $name {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                match self {
+                    $(
+                        $name::$vname(inner) => write!(f, "#{:?}", inner),
+                    )+
+                }
+            }
         }
 
         impl $crate::Decode for $name {
@@ -227,7 +237,7 @@ macro_rules! data {
                 match self {
                     $(
                         $name::$vname(inner) => {
-                            $crate::write_all_to!($disc, inner => buf)
+                            $crate::write_all_to!($disc as $backer, inner => buf)
                         }
                     )+
                 }

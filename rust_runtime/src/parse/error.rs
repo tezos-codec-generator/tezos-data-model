@@ -7,7 +7,7 @@ use crate::{bound::OutOfRange, error::ConstraintError};
 
 /// Enumerated type representing errors in conversion from hex-strings
 /// into byte-buffers.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub enum ConvError<T> {
     /// `ParityError` indicates the error scenerio in which the parity of the
     /// length of the string we wish to interpret as a hex-encoded byte buffer
@@ -54,7 +54,7 @@ impl Display for ConvError<String> {
 /// internally when parsing mostly independent of the validity of the request
 /// being performed. These should never be encountered unless there is a bug
 /// in the implementation of the Parser object itself.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub enum InternalErrorKind {
     ConsumeLengthMismatch { expected: usize, actual: usize },
     SliceCoerceFailure,
