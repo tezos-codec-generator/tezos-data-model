@@ -1,6 +1,9 @@
 pub mod error;
-
 pub mod hexstring;
+
+pub use error::ParseResult;
+use error::{InternalErrorKind, ParseError, TagError};
+use std::convert::{TryFrom, TryInto};
 
 pub mod bytes {
     use super::hexstring::HexString;
@@ -109,207 +112,226 @@ pub mod bytes {
     }
 }
 
-pub mod byteparser {
-    use crate::internal::{BoundAwareMarker, ContextOffset, Marker, SplitVec, Stack};
-    use crate::parse::error::InternalErrorKind;
+/**
+ # Parser
 
-    use super::bytes::{ByteSlice, OwnedBytes};
-    use super::error::{ParseError, TagError};
-    use std::convert::{TryFrom, TryInto};
-    use std::ops::Deref;
+  This trait is an abstraction over types respresenting a stateful
+  parse-object, with default implementations for a variety of monomorphic
+  `get_*` functions, as well as query operations on the internal state,
+  and state-mutational functions that operate on *context-windows*.
 
-    pub type ParseResult<T> = Result<T, ParseError>;
+ ## Model
 
-    /**
-     # Parser
+ While the implementing types are largely free to define their own
+ operational semantics for the required methods of this function, the
+ intensional semantics are as follows:
 
-      This trait is an abstraction over types respresenting a stateful
-      parse-object, with default implementations for a variety of monomorphic
-      `get_*` functions, as well as query operations on the internal state,
-      and state-mutational functions that operate on *context-windows*.
+ * The Parser-object is constructed over an immutable byte-buffer.
+ * All parsing is done in a non-backtracking, zero-lookahead fashion; a byte in the buffer
+   can only be viewed by consuming it, and only after all preceding indices in the buffer
+   have been consumed; after a byte is consumed, it cannot be consumed again.
+ * A *context-window*, or a bounded contiguous view of a section of the buffer,
+   may be constructed. While a context-window exists, any bytes beyond its upper bound
+   are protected and cannot be consumed by any Parser method until that
+   context window is lifted. A context-window can only be lifted by calling
+   [enforce_target] when all bytes within the window have been consumed.
 
-     ## Model
+## Context-Windows
 
-     While the implementing types are largely free to define their own
-     operational semantics for the required methods of this function, the
-     intensional semantics are as follows:
+In order to facilitate bounds-setting and bounds-checking for dynamically sized elements with length prefixes,
+`Parser` uses a model of *context windows*, which are conceptually (though not necessarily implementationally) a stack
+of target offsets, which may in fact be hard lower bounds on remainding-buffer-length in the case of slice-based parsers, or fixed values
+of the mutating parse-head for buffer-based implementations such as [ByteParser].
 
-     * The Parser-object is constructed over an immutable byte-buffer.
-     * All parsing is done in a non-backtracking, zero-lookahead fashion; a byte in the buffer
-       can only be viewed by consuming it, and only after all preceding indices in the buffer
-       have been consumed; after a byte is consumed, it cannot be consumed again.
-     * A *context-window*, or a bounded contiguous view of a section of the buffer,
-       may be constructed. While a context-window exists, any bytes beyond its upper bound
-       are protected and cannot be consumed by any Parser method until that
-       context window is lifted. A context-window can only be lifted by calling
-       [enforce_target] when all bytes within the window have been consumed.
+The following properties should be respected by each implementation of the `Parser` trait:
 
-    ## Context-Windows
+* A fresh `p : impl Parser` object should have `p.offset() == 0` and `p.len()` equal to the length of the parse-buffer
+* `self.remainder() := self.len() - self.offset()` is the largest possible `n` for which `self.consume(n)` returns an `Ok(_)` value, which should also be the largest possible `n` for which `self.set_fit(n)` succeeds. Both should fail for any greater values of `n`, either through `Err(_)` returns or panics.
+* The value of ``self.remainder()` before and after a call to `self.consume(n)` should represent a decrease by `n` if the consume call is an `Ok(_)` value, or remain unchanged if it is an `Err(_)` value.
+* `self.set_fit(m)` should fail whenever `self.remainder() < m`, and succeed otherwise
+* Immediately after a successful call of `self.set_fit(n)`, `self.remainder()` should return `n`
+* `self.test_target()` should return `true` if and only if `self.offset() == self.len()` holds with at least one context window present
+* `self.enforce_target()` should remove the most recently set target if `self.test_target()` would return true, and panic otherwise
 
-    In order to facilitate bounds-setting and bounds-checking for dynamically sized elements with length prefixes,
-    `Parser` uses a model of *context windows*, which are conceptually (though not necessarily implementationally) a stack
-    of target offsets, which may in fact be hard lower bounds on remainding-buffer-length in the case of slice-based parsers, or fixed values
-    of the mutating parse-head for buffer-based implementations such as [ByteParser].
+*/
+pub trait Parser: Iterator<Item = u8> {
+    /** Computes the length of the current view of the Parser's buffer.
+     *
+     * Decrements in the shrinking-slice model, and remains invariant modulo context-window
+     * manipulation in the buffer-with-offset model
+     */
+    fn len(&self) -> usize;
 
-    The following properties should be respected by each implementation of the `Parser` trait:
+    /** Computes the current value of the offset into the Parser's buffer.
+     *
+     * This should either be invariant, or increase by the number of bytes consumed
+     * by any method that returns bytes from the buffer.
+     */
+    fn offset(&self) -> usize;
 
-    * A fresh `p : impl Parser` object should have `p.offset() == 0` and `p.len()` equal to the length of the parse-buffer
-    * `self.len() - self.offset()` is the largest possible `n` for which `self.consume(n)` returns an `Ok(_)` value, which should also be the largest possible `n` for which `self.set_fit(n)` succeeds. Both should fail for any greater values of `n`, either through `Err(_)` returns or panics.
-    * The value of `self.len() - self.offset()` before and after a call to `self.consume(n)` should represent a decrease by `n` if the consume call is an `Ok(_)` value, or remain unchanged if it is an `Err(_)` value. Only one of `self.len()` and `self.offset()` should change in this fashion.
-    * `self.set_fit(m)` should fail whenever `self.len() < m + self.offset()`, and succeed otherwise
-    * Immediately after a successful call of `self.set_fit(n)`, `self.len() == n + self.offset()` should hold.
-    * `self.test_target()` should return `true` if and only if `self.offset() == self.len()` holds with at least one context window present
-    * `self.enforce_target()` should remove the most recently set target if `self.test_target()` would return true, and panic otherwise
+    /** Computes the remaining number of bytes that can be safely consumed in the current context.
+     *
+     * Even if it can be implemented directly,
+     * this should always return the same value as computing `self.len() - self.offset()`
+     */
+    fn remainder(&self) -> usize {
+        self.len() - self.offset()
+    }
 
-    */
-    pub trait Parser: Iterator<Item = u8> {
-        /** Computes the length of the current view of the Parser's buffer.
-         *
-         * Decrements in the shrinking-slice model, and remains invariant modulo context-window
-         * manipulation in the buffer-with-offset model
-         */
-        fn len(&self) -> usize;
+    /// Consumes and returns a slice of length `nbytes`
+    /// continuing from the  from the current offset of the buffer.
+    fn consume(&mut self, nbytes: usize) -> ParseResult<&[u8]>;
 
-        /** Computes the current value of the offset into the Parser's buffer.
-         *
-         * This should either be invariant, or increase by the number of bytes consumed
-         * by any method that returns bytes from the buffer.
-         */
-        fn offset(&self) -> usize;
+    /// Creates a new context-window that permits exactly `n` more bytes to be consumed before
+    /// subsequent consume operations fail.
+    ///
+    /// `self.set_fit(m)` should fail whenever `self.remainder() < m`, and succeed otherwise.
+    ///
+    /// Immediately after a successful call of `self.set_fit(n)`, `self.remainder()` should equal `n`.
+    fn set_fit(&mut self, n: usize) -> ParseResult<()>;
 
-        fn remainder(&self) -> usize {
-            self.len() - self.offset()
+    /// Tests to see whether there there is any context window open, and whether it can be safely closed
+    /// without consuming any more bytes.
+    ///
+    /// It should return true if and only if `self.reminder() == 0` and there is at least one unclosed context window.
+    fn test_target(&mut self) -> ParseResult<bool>;
+
+    /// Attempts to close the current context-window.
+    ///
+    /// This method must fail when there are no context windows left unclosed,
+    /// and when there is at least one byte remaining in the current context window.
+    ///
+    /// It is considered impossible for enforce_target() to encounter a situation in
+    /// which the offset has advanced beyond the current context window, though such
+    /// a case may be tested for by implementors.
+    fn enforce_target(&mut self) -> ParseResult<()>;
+
+    fn consume_arr<const N: usize>(&mut self) -> ParseResult<[u8; N]> {
+        let ret = self.consume(N);
+        match ret {
+            Err(e) => Err(e),
+            Ok(bytes) => bytes.try_into().or(Err(ParseError::InternalError(
+                InternalErrorKind::SliceCoerceFailure,
+            ))),
         }
+    }
 
-        /** Consumes and returns a slice of length `nbytes` starting from the current offset of the buffer.
-         */
-        fn consume(&mut self, nbytes: usize) -> ParseResult<&[u8]>;
-
-        fn set_fit(&mut self, n: usize);
-
-        fn test_target(&mut self) -> bool;
-
-        fn enforce_target(&mut self);
-
-        fn consume_arr<const N: usize>(&mut self) -> ParseResult<[u8; N]> {
-            let ret = self.consume(N);
-            match ret {
-                Err(e) => Err(e),
-                Ok(bytes) => bytes.try_into().or(Err(ParseError::InternalError(
-                    InternalErrorKind::SliceCoerceFailure,
-                ))),
-            }
+    fn get_u8(&mut self) -> ParseResult<u8> {
+        match self.next() {
+            Some(byte) => Ok(byte),
+            None => Err(ParseError::BufferOverflow {
+                buflen: self.len(),
+                requested: 1,
+                offset: self.offset(),
+            }),
         }
+    }
 
-        fn get_u8(&mut self) -> ParseResult<u8> {
-            match self.next() {
-                Some(byte) => Ok(byte),
-                None => Err(ParseError::BufferOverflow {
-                    buflen: self.len(),
-                    requested: 1,
-                    offset: self.offset(),
-                }),
-            }
+    fn get_i8(&mut self) -> ParseResult<i8> {
+        match self.next() {
+            Some(byte) => Ok(byte as i8),
+            None => Err(ParseError::BufferOverflow {
+                buflen: self.len(),
+                requested: 1,
+                offset: self.offset(),
+            }),
         }
+    }
 
-        fn get_i8(&mut self) -> ParseResult<i8> {
-            match self.next() {
-                Some(byte) => Ok(byte as i8),
-                None => Err(ParseError::BufferOverflow {
-                    buflen: self.len(),
-                    requested: 1,
-                    offset: self.offset(),
-                }),
-            }
+    fn get_u16(&mut self) -> ParseResult<u16> {
+        self.consume_arr::<2>().map(u16::from_be_bytes)
+    }
+
+    fn get_i16(&mut self) -> ParseResult<i16> {
+        self.consume_arr::<2>().map(i16::from_be_bytes)
+    }
+
+    fn get_u32(&mut self) -> ParseResult<u32> {
+        self.consume_arr::<4>().map(u32::from_be_bytes)
+    }
+
+    fn get_i32(&mut self) -> ParseResult<i32> {
+        self.consume_arr::<4>().map(i32::from_be_bytes)
+    }
+
+    fn get_u64(&mut self) -> ParseResult<u64> {
+        self.consume_arr::<8>().map(u64::from_be_bytes)
+    }
+
+    fn get_i64(&mut self) -> ParseResult<i64> {
+        self.consume_arr::<8>().map(i64::from_be_bytes)
+    }
+
+    fn get_bool(&mut self) -> ParseResult<bool> {
+        match self.next() {
+            Some(byte) => match byte {
+                0xff => Ok(true),
+                0x00 => Ok(false),
+                _ => Err(ParseError::InvalidBoolean(byte)),
+            },
+            None => Err(ParseError::BufferOverflow {
+                buflen: self.len(),
+                requested: 1,
+                offset: self.offset(),
+            }),
         }
+    }
 
-        fn get_u16(&mut self) -> ParseResult<u16> {
-            self.consume_arr::<2>().map(u16::from_be_bytes)
+    fn get_tagword<T, U>(&mut self, valid: &[U]) -> ParseResult<U>
+    where
+        U: error::TagType + crate::conv::Decode,
+        Self: Sized,
+    {
+        if let [] = valid {
+            return Err(ParseError::InternalError(InternalErrorKind::NoValidTags));
         }
-
-        fn get_i16(&mut self) -> ParseResult<i16> {
-            self.consume_arr::<2>().map(i16::from_be_bytes)
+        let actual: U = crate::conv::Decode::parse(self)?;
+        if valid.contains(&actual) {
+            Ok(actual)
+        } else {
+            Err(ParseError::InvalidTag(
+                TagError::new(
+                    actual,
+                    Some(std::any::type_name::<T>().to_owned()),
+                    Some(valid.to_vec()),
+                )
+                .into(),
+            ))
         }
+    }
 
-        fn get_u32(&mut self) -> ParseResult<u32> {
-            self.consume_arr::<4>().map(u32::from_be_bytes)
-        }
+    fn get_dynamic(&mut self, nbytes: usize) -> ParseResult<Vec<u8>> {
+        self.consume(nbytes).map(Vec::from)
+    }
 
-        fn get_i32(&mut self) -> ParseResult<i32> {
-            self.consume_arr::<4>().map(i32::from_be_bytes)
-        }
+    fn get_fixed<const N: usize>(&mut self) -> ParseResult<[u8; N]> {
+        self.consume_arr::<N>()
+    }
 
-        fn get_u64(&mut self) -> ParseResult<u64> {
-            self.consume_arr::<8>().map(u64::from_be_bytes)
-        }
-
-        fn get_i64(&mut self) -> ParseResult<i64> {
-            self.consume_arr::<8>().map(i64::from_be_bytes)
-        }
-
-        fn get_bool(&mut self) -> ParseResult<bool> {
-            match self.next() {
-                Some(byte) => match byte {
-                    0xff => Ok(true),
-                    0x00 => Ok(false),
-                    _ => Err(ParseError::InvalidBoolean(byte)),
-                },
-                None => Err(ParseError::BufferOverflow {
-                    buflen: self.len(),
-                    requested: 1,
-                    offset: self.offset(),
-                }),
-            }
-        }
-
-        fn get_tagword<T, U>(&mut self, valid: &[U]) -> ParseResult<U>
-        where
-            U: super::error::TagType + crate::conv::Decode,
-            Self: Sized,
-        {
-            if let [] = valid {
-                return Err(ParseError::InternalError(InternalErrorKind::NoValidTags));
-            }
-            let actual: U = crate::conv::Decode::parse(self)?;
-            if valid.contains(&actual) {
-                Ok(actual)
-            } else {
-                Err(ParseError::InvalidTag(
-                    TagError::new(
-                        actual,
-                        Some(std::any::type_name::<T>().to_owned()),
-                        Some(valid.to_vec()),
-                    )
-                    .into(),
-                ))
-            }
-        }
-
-        fn get_dynamic(&mut self, nbytes: usize) -> ParseResult<Vec<u8>> {
-            self.consume(nbytes).map(Vec::from)
-        }
-
-        fn get_fixed<const N: usize>(&mut self) -> ParseResult<[u8; N]> {
-            self.consume_arr::<N>()
-        }
-
-        fn get_self_terminating<F>(&mut self, is_terminal: F) -> ParseResult<Vec<u8>>
-        where
-            F: Fn(u8) -> bool,
-        {
-            let mut ret: Vec<u8> = Vec::with_capacity(self.len() - self.offset());
-            loop {
-                if let Some(byte) = self.next() {
-                    ret.push(byte);
-                    if is_terminal(byte) {
-                        break Ok(ret);
-                    }
-                } else {
-                    break Err(ParseError::NonTerminating(ret));
+    fn get_self_terminating<F>(&mut self, is_terminal: F) -> ParseResult<Vec<u8>>
+    where
+        F: Fn(u8) -> bool,
+    {
+        let mut ret: Vec<u8> = Vec::with_capacity(self.len() - self.offset());
+        loop {
+            if let Some(byte) = self.next() {
+                ret.push(byte);
+                if is_terminal(byte) {
+                    break Ok(ret);
                 }
+            } else {
+                break Err(ParseError::NonTerminating(ret));
             }
         }
     }
+}
+
+pub mod byteparser {
+    use crate::internal::{BoundAwareMarker, ContextOffset, Marker};
+
+    use super::bytes::OwnedBytes;
+    use super::error::{ParseError, ParseResult};
+    use std::convert::{TryFrom, TryInto};
 
     pub struct ByteParser {
         buffer: OwnedBytes,
@@ -348,7 +370,7 @@ pub mod byteparser {
         }
     }
 
-    impl Parser for ByteParser {
+    impl super::Parser for ByteParser {
         fn len(&self) -> usize {
             self.offset.lim()
         }
@@ -357,15 +379,15 @@ pub mod byteparser {
             self.offset.get()
         }
 
-        fn set_fit(&mut self, n: usize) {
+        fn set_fit(&mut self, n: usize) -> ParseResult<()> {
             self.offset.set_fit(n)
         }
 
-        fn test_target(&mut self) -> bool {
-            self.offset.test_target()
+        fn test_target(&mut self) -> ParseResult<bool> {
+            Ok(self.offset.test_target())
         }
 
-        fn enforce_target(&mut self) {
+        fn enforce_target(&mut self) -> ParseResult<()> {
             self.offset.enforce_target()
         }
 
@@ -382,11 +404,38 @@ pub mod byteparser {
             }
         }
     }
+}
+
+pub mod memoparser {
+    use std::convert::{TryFrom, TryInto};
+
+    use crate::internal::{BoundAwareMarker, ContextOffset, Marker, SplitVec};
+    use crate::parse::error::TagError;
+
+    use super::bytes::OwnedBytes;
+    use super::error::{InternalErrorKind, ParseError};
+    use super::ParseResult;
 
     pub struct MemoParser {
         buffer: OwnedBytes,
         offset: ContextOffset,
         munches: Vec<usize>,
+    }
+
+    macro_rules! eprint_munches {
+        ($self:expr) => {{
+            let mut splits = SplitVec::new();
+            let mut ix: usize = 0;
+            for &len in $self.munches.iter() {
+                unsafe {
+                    let tmp: &[u8] = $self.buffer.get_slice(ix, len);
+                    splits.extend_current(tmp.iter().copied());
+                    splits.split();
+                }
+                ix += len;
+            }
+            eprintln!("{}", splits);
+        }};
     }
 
     impl MemoParser {
@@ -427,25 +476,13 @@ pub mod byteparser {
         }
     }
 
-    impl Parser for MemoParser {
+    impl super::Parser for MemoParser {
         fn len(&self) -> usize {
             self.offset.lim()
         }
 
         fn offset(&self) -> usize {
             self.offset.get()
-        }
-
-        fn set_fit(&mut self, n: usize) {
-            self.offset.set_fit(n)
-        }
-
-        fn test_target(&mut self) -> bool {
-            self.offset.test_target()
-        }
-
-        fn enforce_target(&mut self) {
-            self.offset.enforce_target()
         }
 
         fn consume(&mut self, nbytes: usize) -> ParseResult<&[u8]> {
@@ -455,18 +492,7 @@ pub mod byteparser {
                 Ok(unsafe { self.buffer.get_slice(ix, nbytes) })
             } else {
                 let offset = ix;
-                let mut splits = SplitVec::new();
-                let mut ix: usize = 0;
-                for &len in self.munches.iter() {
-                    unsafe {
-                        let tmp: &[u8] = self.buffer.get_slice(ix, len);
-                        splits.extend_current(tmp.iter().copied());
-                        splits.split();
-                    }
-                    ix += len;
-                }
-                eprintln!("{}", splits);
-
+                eprint_munches!(self);
                 Err(ParseError::BufferOverflow {
                     offset,
                     requested: nbytes,
@@ -474,7 +500,115 @@ pub mod byteparser {
                 })
             }
         }
+
+        fn set_fit(&mut self, n: usize) -> ParseResult<()> {
+            self.offset.set_fit(n)
+        }
+
+        fn test_target(&mut self) -> ParseResult<bool> {
+            Ok(self.offset.test_target())
+        }
+
+        fn enforce_target(&mut self) -> ParseResult<()> {
+            self.offset.enforce_target()
+        }
+
+        fn get_u8(&mut self) -> ParseResult<u8> {
+            match self.next() {
+                Some(byte) => Ok(byte),
+                None => {
+                    eprint_munches!(self);
+                    Err(ParseError::BufferOverflow {
+                        buflen: self.len(),
+                        requested: 1,
+                        offset: self.offset(),
+                    })
+                }
+            }
+        }
+
+        fn get_i8(&mut self) -> ParseResult<i8> {
+            match self.next() {
+                Some(byte) => Ok(byte as i8),
+                None => {
+                    eprint_munches!(self);
+                    Err(ParseError::BufferOverflow {
+                        buflen: self.len(),
+                        requested: 1,
+                        offset: self.offset(),
+                    })
+                }
+            }
+        }
+
+        fn get_bool(&mut self) -> ParseResult<bool> {
+            match self.next() {
+                Some(byte) => match byte {
+                    0xff => Ok(true),
+                    0x00 => Ok(false),
+                    _ => Err(ParseError::InvalidBoolean(byte)),
+                },
+                None => {
+                    eprint_munches!(self);
+                    Err(ParseError::BufferOverflow {
+                        buflen: self.len(),
+                        requested: 1,
+                        offset: self.offset(),
+                    })
+                }
+            }
+        }
+
+        fn get_tagword<T, U>(&mut self, valid: &[U]) -> ParseResult<U>
+        where
+            U: super::error::TagType + crate::conv::Decode,
+            Self: Sized,
+        {
+            if let [] = valid {
+                return Err(ParseError::InternalError(InternalErrorKind::NoValidTags));
+            }
+            let actual: U = crate::conv::Decode::parse(self)?;
+            if valid.contains(&actual) {
+                Ok(actual)
+            } else {
+                eprint_munches!(self);
+                Err(ParseError::InvalidTag(
+                    TagError::new(
+                        actual,
+                        Some(std::any::type_name::<T>().to_owned()),
+                        Some(valid.to_vec()),
+                    )
+                    .into(),
+                ))
+            }
+        }
+
+        fn get_self_terminating<F>(&mut self, is_terminal: F) -> ParseResult<Vec<u8>>
+        where
+            F: Fn(u8) -> bool,
+        {
+            let mut ret: Vec<u8> = Vec::with_capacity(self.len() - self.offset());
+            loop {
+                if let Some(byte) = self.next() {
+                    ret.push(byte);
+                    if is_terminal(byte) {
+                        break Ok(ret);
+                    }
+                } else {
+                    eprint_munches!(self);
+                    break Err(super::ParseError::NonTerminating(ret));
+                }
+            }
+        }
     }
+}
+
+pub mod sliceparser {
+    use std::convert::{TryFrom, TryInto};
+
+    use crate::{internal::Stack, ParseError, ParseResult};
+
+    use super::{bytes::ByteSlice, error::WindowErrorKind};
 
     pub struct SliceParser<'a>(Vec<ByteSlice<'a>>);
 
@@ -518,7 +652,7 @@ pub mod byteparser {
         }
     }
 
-    impl<'a> Parser for SliceParser<'a> {
+    impl<'a> super::Parser for SliceParser<'a> {
         fn len(&self) -> usize {
             match self.0.peek() {
                 Some(bs) => bs.len(),
@@ -555,107 +689,133 @@ pub mod byteparser {
             }
         }
 
-        fn set_fit(&mut self, n: usize) {
+        fn set_fit(&mut self, n: usize) -> std::result::Result<(), ParseError> {
             match self.0.peek_mut() {
-                None if n == 0 => (),
-                None => panic!(
-                    "SliceParser::set_fit: Cannot reserve {} bytes of empty buffer",
-                    n
-                ),
+                None if n == 0 => Ok(()),
+                None => Err(ParseError::WindowError(
+                    WindowErrorKind::OpenWouldExceedBuffer {
+                        bytes_left: 0,
+                        request: n,
+                    },
+                )),
                 Some(frame) => {
                     if frame.len() >= n {
                         unsafe {
                             let (novel, rem) = frame.split(n);
                             *frame = rem;
                             self.0.push(novel);
+                            Ok(())
                         }
                     } else {
-                        panic!(
-                            "Cannot set fit of {} bytes when current frame contains {} bytes",
-                            n,
-                            frame.len()
-                        );
+                        Err(ParseError::WindowError(
+                            WindowErrorKind::OpenWouldExceedWindow {
+                                limit: frame.len(),
+                                request: n,
+                            },
+                        ))
                     }
                 }
             }
         }
 
-        fn test_target(&mut self) -> bool {
-            match self.0.peek() {
+        fn test_target(&mut self) -> ParseResult<bool> {
+            let ret = match self.0.peek() {
                 None => false,
                 Some(frame) => frame.len() == 0,
+            };
+            Ok(ret)
+        }
+
+        fn enforce_target(&mut self) -> ParseResult<()> {
+            let _window = self.0.pop();
+            match _window {
+                None => Err(ParseError::WindowError(WindowErrorKind::CloseWithoutWindow)),
+                Some(_frame) => match _frame.len() {
+                    0 => Ok(()),
+                    residual => Err(ParseError::WindowError(WindowErrorKind::CloseWithResidue {
+                        residual,
+                    })),
+                },
             }
         }
-
-        fn enforce_target(&mut self) {
-            assert_eq!(self.0.pop().expect("No target to enforce!").len(), 0);
-        }
     }
+}
 
-    pub trait ToParser<P: Parser = ByteParser> {
-        fn into_parser(self) -> ParseResult<P>;
+use byteparser::ByteParser;
+use memoparser::MemoParser;
+use sliceparser::SliceParser;
 
-        fn to_parser(self) -> P
-        where
-            Self: Sized,
-        {
-            self.into_parser()
-                .expect("ToParser::to_parser: encountered error in self.into_parser")
-        }
-    }
+use self::bytes::{ByteSlice, OwnedBytes};
 
-    impl ToParser<ByteParser> for ByteParser {
-        fn into_parser(self) -> ParseResult<Self> {
-            Ok(self)
-        }
-    }
+pub trait ToParser<P: Parser = ByteParser> {
+    fn try_into_parser(self) -> ParseResult<P>;
 
-    impl<'a> ToParser<SliceParser<'a>> for SliceParser<'a> {
-        fn into_parser(self) -> ParseResult<Self> {
-            Ok(self)
-        }
-    }
-
-    impl<T> ToParser<ByteParser> for T
+    fn into_parser(self) -> P
     where
-        OwnedBytes: TryFrom<T>,
-        <T as TryInto<OwnedBytes>>::Error: std::fmt::Display + Into<ParseError>,
+        Self: Sized,
     {
-        fn into_parser(self) -> ParseResult<ByteParser> {
-            ByteParser::parse(self)
-        }
+        self.try_into_parser()
+            .expect("ToParser::to_parser: encountered error in ToParser::into_parser")
     }
+}
 
-    impl<T> ToParser<MemoParser> for T
-    where
-        OwnedBytes: TryFrom<T>,
-        <T as TryInto<OwnedBytes>>::Error: std::fmt::Display + Into<ParseError>,
-    {
-        fn into_parser(self) -> ParseResult<MemoParser> {
-            MemoParser::parse(self)
-        }
+impl ToParser<ByteParser> for ByteParser {
+    fn try_into_parser(self) -> ParseResult<Self> {
+        Ok(self)
     }
+}
 
-
-    impl<'a, T> ToParser<SliceParser<'a>> for T
-    where
-        ByteSlice<'a>: TryFrom<T>,
-        <T as TryInto<ByteSlice<'a>>>::Error: Into<ParseError>,
-    {
-        fn into_parser(self) -> ParseResult<SliceParser<'a>> {
-            SliceParser::parse(self)
-        }
+impl<'a> ToParser<SliceParser<'a>> for SliceParser<'a> {
+    fn try_into_parser(self) -> ParseResult<Self> {
+        Ok(self)
     }
+}
 
-    impl<const N: usize> ToParser for &[u8; N] {
-        fn into_parser(self) -> ParseResult<ByteParser> {
-            ByteParser::parse(self.to_vec())
-        }
+impl ToParser<MemoParser> for MemoParser {
+    fn try_into_parser(self) -> ParseResult<MemoParser> {
+        Ok(self)
     }
+}
 
-    impl ToParser for String {
-        fn into_parser(self) -> ParseResult<ByteParser> {
-            ByteParser::parse(self.deref())
-        }
+
+impl<T> ToParser<ByteParser> for T
+where
+    OwnedBytes: TryFrom<T>,
+    <T as TryInto<OwnedBytes>>::Error: std::fmt::Display + Into<ParseError>,
+{
+    fn try_into_parser(self) -> ParseResult<ByteParser> {
+        ByteParser::parse(self)
+    }
+}
+
+impl<T> ToParser<MemoParser> for T
+where
+    OwnedBytes: TryFrom<T>,
+    <T as TryInto<OwnedBytes>>::Error: std::fmt::Display + Into<ParseError>,
+{
+    fn try_into_parser(self) -> ParseResult<MemoParser> {
+        MemoParser::parse(self)
+    }
+}
+
+impl<'a, T> ToParser<SliceParser<'a>> for T
+where
+    ByteSlice<'a>: TryFrom<T>,
+    <T as TryInto<ByteSlice<'a>>>::Error: Into<ParseError>,
+{
+    fn try_into_parser(self) -> ParseResult<SliceParser<'a>> {
+        SliceParser::parse(self)
+    }
+}
+
+impl<const N: usize> ToParser for &[u8; N] {
+    fn try_into_parser(self) -> ParseResult<ByteParser> {
+        ByteParser::parse(self.to_vec())
+    }
+}
+
+impl ToParser for String {
+    fn try_into_parser(self) -> ParseResult<ByteParser> {
+        ByteParser::parse(<String as std::ops::Deref>::deref(&self))
     }
 }

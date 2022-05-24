@@ -1,11 +1,20 @@
+use crate::Estimable;
 use crate::conv::target::Target;
 use crate::conv::{len, Decode, Encode};
 use crate::error::ConstraintError;
-use crate::parse::byteparser::{ParseResult, Parser};
+use crate::parse::{ParseResult, Parser};
 use std::convert::{TryFrom, TryInto};
+use std::fmt::Debug;
 use std::ops::DerefMut;
 use std::{self, ops::Deref};
 
+/// `Padded<T, N>`: Represents a value of type `T` with `N` trailing bytes of
+/// padding.
+///
+/// It is expected, though not strictly mandatory, that all of the padding bytes
+/// are zeroed out. The implmentation of Encode is guaranteed to use 0 for padding
+/// but does not require that the padding be zeroed-out in the implementation of
+/// Decode.
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
 pub struct Padded<T, const N: usize>(T);
 
@@ -19,7 +28,7 @@ impl<T, const N: usize> Deref for Padded<T, N> {
 
 impl<T: Encode, const N: usize> Encode for Padded<T, N> {
     fn write_to<U: Target>(&self, buf: &mut U) -> usize {
-        self.0.write_to(buf) + buf.push_all(&[0; N]) + crate::resolve_zero!(buf)
+        self.0.write_to(buf) + buf.push_many([0; N]) + crate::resolve_zero(buf)
     }
 }
 
@@ -46,6 +55,67 @@ impl<T: len::Estimable, const N: usize> len::Estimable for Padded<T, N> {
         self.0.unknown() + N
     }
 }
+
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct Nullable<T>(Option<T>);
+
+impl<T> From<Nullable<T>> for Option<T> {
+    fn from(val: Nullable<T>) -> Self {
+        val.0
+    }
+}
+
+impl<T> From<Option<T>> for Nullable<T> {
+    fn from(val: Option<T>) -> Self {
+        Self(val)
+    }
+}
+
+impl<T> From<T> for Nullable<T> {
+    fn from(val: T) -> Self {
+        Self(Some(val))
+    }
+}
+
+impl<T: Debug> Debug for Nullable<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        <Option<T> as Debug>::fmt(&self.0, f)
+    }
+}
+
+impl<T: Estimable> Estimable for Nullable<T> {
+    const KNOWN: Option<usize> = {
+        match T::KNOWN {
+            Some(0usize) => Some(0),
+            _ => None,
+        }
+    };
+
+    fn unknown(&self) -> usize {
+        self.0.as_ref().map_or(0, <T as Estimable>::unknown)
+    }
+}
+
+impl<T: Encode> Encode for Nullable<T> {
+    fn write_to<U: Target>(&self, buf: &mut U) -> usize {
+        match &self.0 {
+            Some(x) => x.write_to(buf) + crate::resolve_zero(buf),
+            None => crate::resolve_zero(buf),
+        }
+    }
+}
+
+impl<T: Decode> Decode for Nullable<T> {
+    fn parse<P: Parser>(p: &mut P) -> ParseResult<Self>
+    where Self: Sized {
+        if p.remainder() != 0 {
+            Ok(T::parse(p)?.into())
+        } else {
+            Ok(None.into())
+        }
+    }
+}
+
 
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone)]
 pub struct Bytes(Vec<u8>);
@@ -74,9 +144,9 @@ impl DerefMut for Bytes {
     }
 }
 
-impl Into<Vec<u8>> for Bytes {
-    fn into(self) -> Vec<u8> {
-        self.0
+impl From<Bytes> for Vec<u8> {
+    fn from(val: Bytes) -> Self {
+        val.0
     }
 }
 
@@ -146,7 +216,7 @@ impl<T: len::Estimable, const N: usize> len::Estimable for FixSeq<T, N> {
 
 impl<T: Encode, const N: usize> Encode for FixSeq<T, N> {
     fn write_to<U: Target>(&self, buf: &mut U) -> usize {
-        self.0.iter().map(|item| item.write_to(buf)).sum::<usize>() + crate::resolve_zero!(buf)
+        self.0.iter().map(|item| item.write_to(buf)).sum::<usize>() + crate::resolve_zero(buf)
     }
 }
 
@@ -214,7 +284,7 @@ impl<T: len::Estimable, const N: usize> len::Estimable for LimSeq<T, N> {
 
 impl<T: Encode, const N: usize> Encode for LimSeq<T, N> {
     fn write_to<U: Target>(&self, buf: &mut U) -> usize {
-        self.0.iter().map(|item| item.write_to(buf)).sum::<usize>() + crate::resolve_zero!(buf)
+        self.0.iter().map(|item| item.write_to(buf)).sum::<usize>() + crate::resolve_zero(buf)
     }
 }
 
@@ -279,7 +349,7 @@ impl<T: len::Estimable> len::Estimable for Sequence<T> {
 
 impl<T: Encode> Encode for Sequence<T> {
     fn write_to<U: Target>(&self, buf: &mut U) -> usize {
-        self.0.iter().map(|item| item.write_to(buf)).sum::<usize>() + crate::resolve_zero!(buf)
+        self.0.iter().map(|item| item.write_to(buf)).sum::<usize>() + crate::resolve_zero(buf)
     }
 }
 

@@ -18,7 +18,7 @@
 //! Derive macros for Encode, Decode, and even Estimable are provided in the sub-crates `encode_derive`,
 //! `decode_derive`, and `estimable_derive`, which are only relevant within the context of this runtime.
 
-use crate::parse::byteparser::{ParseResult, Parser, ToParser};
+use crate::parse::{ParseResult, Parser, ToParser};
 
 use self::target::Target;
 
@@ -28,11 +28,7 @@ pub mod target;
 #[macro_export]
 macro_rules! write_all_to {
     ( $($x:expr),* $(,)? => $tgt:expr ) => {
-        {
-            let tmp : usize = $( $x.write_to($tgt) + )* 0;
-            $crate::Target::resolve($tgt);
-            tmp
-        }
+        { $( $x.write_to($tgt) + )* $crate::conv::target::resolve_zero($tgt) }
     };
 }
 
@@ -98,14 +94,14 @@ pub trait Decode {
         P: Parser,
         U: ToParser<P>,
     {
-        let mut p = inp.to_parser();
+        let mut p = inp.into_parser();
         Self::parse(&mut p)
     }
 
     fn decode_memo<U>(inp: U) -> Self
     where
         Self: Sized,
-        U: ToParser<crate::parse::byteparser::MemoParser>,
+        U: ToParser<crate::parse::memoparser::MemoParser>,
     {
         Self::try_decode(inp).expect(&format!(
             "<{} as Decode>::decode_memo: unable to parse value (ParseError encountered)",
@@ -127,7 +123,7 @@ pub trait Decode {
 
 impl Encode for Vec<u8> {
     fn write_to<U: Target>(&self, buf: &mut U) -> usize {
-        buf.push_all(&self) + crate::resolve_zero!(buf)
+        buf.push_all(&self) + crate::resolve_zero(buf)
     }
 }
 
@@ -139,13 +135,13 @@ impl Decode for Vec<u8> {
 
 impl Encode for &str {
     fn write_to<U: Target>(&self, buf: &mut U) -> usize {
-        buf.push_all(self.as_bytes()) + crate::resolve_zero!(buf)
+        buf.push_all(self.as_bytes()) + crate::resolve_zero(buf)
     }
 }
 
 impl Encode for String {
     fn write_to<W: Target>(&self, buf: &mut W) -> usize {
-        buf.push_all(self.as_bytes()) + crate::resolve_zero!(buf)
+        buf.push_all(self.as_bytes()) + crate::resolve_zero(buf)
     }
 }
 
@@ -162,7 +158,7 @@ impl<T: Encode> Encode for Option<T> {
         (match self {
             Some(val) => buf.push_one(0xff) + val.write_to(buf),
             None => buf.push_one(0x00),
-        }) + crate::resolve_zero!(buf)
+        }) + crate::resolve_zero(buf)
     }
 }
 

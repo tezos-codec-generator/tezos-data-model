@@ -157,9 +157,9 @@ macro_rules! impl_try_from {
 impl_try_from!(&str);
 impl_try_from!(String);
 
-impl Into<Vec<u8>> for HexString {
-    fn into(self) -> Vec<u8> {
-        self.words
+impl From<HexString> for Vec<u8> {
+    fn from(val: HexString) -> Self {
+        val.words
     }
 }
 

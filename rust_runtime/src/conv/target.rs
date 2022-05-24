@@ -75,21 +75,18 @@ pub trait Target {
     /// By definition, the effect of this function must not have influence on the actual contents of the buffer
     /// beyond internal division or segmentation, and so a default no-op implementation is provided, as few, if any,
     /// implementors will have need to override this.
-    fn resolve(&mut self) { }
+    fn resolve(&mut self) {}
 }
 
-#[macro_export]
 /// Perform the associated `Target::resolve` call on the argument expression and return `0usize`
 ///
-/// While this macro could instead be a method with a default implementation in `Target` itself,
+/// While this standalone function could instead be a method with a default implementation in `Target` itself,
 /// this approach guarantees that compiler logic is independent of implementation details of `Target`,
 /// as well as ensuring that `0` is invariably returned.
-macro_rules! resolve_zero {
-    ( $x:expr ) => {
-        { $x.resolve(); 0usize }
-    };
+pub fn resolve_zero(buf: &mut impl Target) -> usize {
+    buf.resolve();
+    0
 }
-
 
 pub type ByteCounter = std::io::Sink;
 

@@ -2,7 +2,7 @@ use crate::bound::OutOfRange;
 use crate::conv::len::FixedLength;
 use crate::conv::target::Target;
 use crate::conv::{Decode, Encode};
-use crate::parse::byteparser::{ParseResult, Parser};
+use crate::parse::{ParseResult, Parser};
 use std::convert::TryFrom;
 use std::fmt::Debug;
 
@@ -98,13 +98,13 @@ impl Decode for f64 {
 
 impl Encode for f64 {
     fn write_to<U: Target>(&self, buf: &mut U) -> usize {
-        self.to_bits().write_to(buf) + crate::resolve_zero!(buf)
+        self.to_bits().write_to(buf) + crate::resolve_zero(buf)
     }
 }
 
 impl<const MIN: u64, const MAX: u64> Encode for RangedFloat<MIN, MAX> {
     fn write_to<U: Target>(&self, buf: &mut U) -> usize {
-        self.get_validated().write_to(buf) + crate::resolve_zero!(buf)
+        self.get_validated().write_to(buf) + crate::resolve_zero(buf)
     }
 }
 

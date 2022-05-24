@@ -18,9 +18,9 @@ impl std::fmt::Debug for MemoBuilder {
     }
 }
 
-impl Into<Vec<u8>> for MemoBuilder {
-    fn into(self) -> Vec<u8> {
-        self.segs.forget()
+impl From<MemoBuilder> for Vec<u8> {
+    fn from(val: MemoBuilder) -> Self {
+        val.segs.forget()
     }
 }
 
@@ -69,9 +69,9 @@ impl From<SplitVec<u8>> for MemoBuffer {
     }
 }
 
-impl Into<Vec<u8>> for MemoBuffer {
-    fn into(self) -> Vec<u8> {
-        self.buf
+impl From<MemoBuffer> for Vec<u8> {
+    fn from(val: MemoBuffer) -> Self {
+        val.buf
     }
 }
 

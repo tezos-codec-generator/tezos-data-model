@@ -1,6 +1,6 @@
 use crate::conv::len::FixedLength;
 use crate::conv::{Decode, Encode};
-use crate::parse::byteparser::ParseResult;
+use crate::parse::ParseResult;
 use crate::Parser;
 use std::convert::{TryFrom, TryInto};
 use std::fmt::{Debug, Display};
@@ -34,9 +34,9 @@ where
     }
 }
 
-impl Into<usize> for u30 {
-    fn into(self) -> usize {
-        self.val as usize
+impl From<u30> for usize {
+    fn from(val: u30) -> Self {
+        val.val as usize
     }
 }
 
@@ -136,7 +136,7 @@ macro_rules! impl_encode_words {
     ($a:ty) => {
         impl Encode for $a {
             fn write_to<U: $crate::conv::target::Target>(&self, buf: &mut U) -> usize {
-                buf.push_all(&self.to_be_bytes()) + crate::resolve_zero!(buf)
+                buf.push_all(&self.to_be_bytes()) + crate::resolve_zero(buf)
             }
         }
     };
@@ -219,7 +219,7 @@ where
         } else {
             (*self).val
         };
-        enc_val.write_to(buf) + crate::resolve_zero!(buf)
+        enc_val.write_to(buf) + crate::resolve_zero(buf)
     }
 }
 

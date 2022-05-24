@@ -11,9 +11,9 @@ impl Borrow<[u8]> for StrictBuilder {
     }
 }
 
-impl Into<Vec<u8>> for StrictBuilder {
-    fn into(self) -> Vec<u8> {
-        self.0
+impl From<StrictBuilder> for Vec<u8> {
+    fn from(val: StrictBuilder) -> Self {
+        val.0
     }
 }
 

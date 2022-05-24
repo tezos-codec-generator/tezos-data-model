@@ -1,9 +1,81 @@
 //! Possible errors encountered during creation or manipulation of
 //! Parser objects.
 
-use std::{convert::Infallible, fmt::*, string::FromUtf8Error};
+use std::{convert::Infallible, string::FromUtf8Error, fmt::{Display, Formatter, Result}};
 
 use crate::{bound::OutOfRange, error::ConstraintError};
+
+#[derive(Debug, Clone, Copy)]
+/// Enumerated type representing error conditions specific to
+/// opening, closing, and adhering to context-windows for Parser
+/// types.
+pub enum WindowErrorKind {
+    /// Error case when a method call attempts to open a window
+    /// that, if created, would extend beyond the final byte in
+    /// the parse-buffer.
+    ///
+    /// Note that this case can be a fallthrough, and that if a parse-window
+    /// happens to exist at the same time, [`OpenWouldExceedWindow`] may
+    /// be the reported error.
+    OpenWouldExceedBuffer {
+        bytes_left: usize,
+        request: usize,
+    },
+    /// Error case when a method call attempts to open a window
+    /// that, if created, would be wider than the narrowest
+    /// open context-window.
+    ///
+    /// Note that this error may be reported in cases where the method call
+    /// would fail regardless, such as when the requested width would also
+    /// exceed successive open windows, or even the entire parse-buffer itself.
+    OpenWouldExceedWindow {
+        limit: usize,
+        request: usize,
+    },
+    /// Error case when a method call attempts to close the narrowest open
+    /// context-window but there are unconsumed bytes remaining within said
+    /// window.
+    CloseWithResidue {
+        residual: usize,
+    },
+    /// Error case when a method call attempts to close the narrowest open
+    /// context-window, but there are no open context-windows to begin with.
+    CloseWithoutWindow,
+    /// Generic error case where the current offset of a Parser exceeds the bounds
+    /// of the narrowest open context-window.
+    ///
+    /// This case is never expected to be reached, but it is included nonetheless.
+    /// It is a critical error in the implementation of a parser if this error is
+    /// ever reported.
+    OffsetOverflow {
+        excess: usize,
+    },
+}
+
+impl std::fmt::Display for WindowErrorKind {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result {
+        match self {
+            &WindowErrorKind::OpenWouldExceedBuffer { bytes_left, request } => {
+                if bytes_left == 0 {
+                    write!(f, "Cannot open {}-byte context window: parse-buffer has been fully consumed", request)
+                } else {
+                    write!(f, "Cannot open {}-byte context window: parse-buffer has only {} bytes remaining", request, bytes_left)
+                }
+            }
+            &WindowErrorKind::OpenWouldExceedWindow { limit, request } => {
+                write!(f, "Cannot open {}-byte context window: wider than current window ({} bytes)", request, limit)
+            }
+            &WindowErrorKind::CloseWithResidue { residual } => {
+                write!(f, "Cannot close context window without first consuming {} residual bytes", residual)
+            }
+            &WindowErrorKind::CloseWithoutWindow => write!(f, "Cannot close context window when there is no context-window to close"),
+            &WindowErrorKind::OffsetOverflow { excess } => {
+                write!(f, "BUG: detected an offset that exceeds the current limit by {} bytes", excess)
+            }
+        }
+    }
+}
+
 
 /// Enumerated type representing errors in conversion from hex-strings
 /// into byte-buffers.
@@ -156,7 +228,7 @@ impl Display for ExternalErrorKind {
 
 pub trait TagType
 where
-    Self: Debug + Display + Clone + Copy + PartialEq + Eq + LowerHex,
+    Self: std::fmt::Debug + Display + Clone + Copy + PartialEq + Eq + std::fmt::LowerHex,
 {
     fn promote(val: TagError<Self>) -> TagErrorKind;
 }
@@ -256,6 +328,8 @@ impl<T: TagType> From<TagError<T>> for TagErrorKind {
 /// operations that attempt to create or manipulate Parser objects
 #[derive(Debug, Clone)]
 pub enum ParseError {
+    /// Error encountered when opening, closing, or adhering to context windows.
+    WindowError(WindowErrorKind),
     /// Internal error indicating a bug in the implementation
     InternalError(InternalErrorKind),
     /// External error indicating a contextually invalid parse-result
@@ -278,6 +352,9 @@ pub enum ParseError {
 impl Display for ParseError {
     fn fmt(&self, f: &mut Formatter) -> Result {
         match self {
+            ParseError::WindowError(err) => {
+                write!(f, "Context-window error: {}", err)
+            }
             ParseError::BufferOverflow {
                 buflen,
                 offset,
@@ -286,10 +363,10 @@ impl Display for ParseError {
                 write!(f, "cannot increment offset by {} bytes (currently at byte {} in buffer of length {})", requested, offset, buflen)
             }
             ParseError::InternalError(err) => {
-                write!(f, "internal error ({})", err)
+                write!(f, "Internal error: {}", err)
             }
             ParseError::ExternalError(err) => {
-                write!(f, "external error ({})", err)
+                write!(f, "External error: {}", err)
             }
             ParseError::InvalidBoolean(byte) => {
                 write!(f, "expected boolean := (0xff | 0x00), got 0x{:02x}", byte)
@@ -318,3 +395,13 @@ where
         Self::ExternalError(ExternalErrorKind::from(err))
     }
 }
+
+impl From<WindowErrorKind> for ParseError
+{
+    fn from(err: WindowErrorKind) -> Self {
+        Self::WindowError(err)
+    }
+}
+
+
+pub type ParseResult<T> = std::result::Result<T, ParseError>;

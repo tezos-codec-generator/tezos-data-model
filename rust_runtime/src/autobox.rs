@@ -1,6 +1,6 @@
 use crate::conv::target::Target;
 use crate::conv::{len::Estimable, Decode, Encode};
-use crate::parse::byteparser::{ParseResult, Parser};
+use crate::parse::{ParseResult, Parser};
 use std::fmt::Debug;
 use std::ops::Deref;
 
@@ -10,13 +10,13 @@ pub struct AutoBox<T: Encode + Decode + Estimable + Debug> {
 }
 
 impl<T> Debug for AutoBox<T>
-where    T: Encode + Decode + Estimable + Debug
+where
+    T: Encode + Decode + Estimable + Debug,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "[AutoBox|{:?}]", self._box.as_ref())
     }
 }
-
 
 impl<T: Encode + Decode + Estimable + Debug> AutoBox<T> {
     pub fn new(val: T) -> Self {

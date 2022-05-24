@@ -54,6 +54,7 @@ pub mod autobox;
 mod bound;
 pub mod builder;
 pub mod conv;
+pub mod default;
 pub mod dynamic;
 pub mod error;
 pub mod fixed;
@@ -65,24 +66,22 @@ pub mod prim;
 pub mod schema;
 pub mod util;
 pub mod zarith;
-pub mod default;
 
-pub use ::lazy_static::lazy_static;
 pub use crate::autobox::AutoBox;
-pub use crate::builder::{strict::StrictBuilder, Builder, memo::MemoBuilder};
+pub use crate::builder::{memo::MemoBuilder, strict::StrictBuilder, Builder};
 pub use crate::conv::{
     len::{Estimable, FixedLength, ScalarLength},
-    target::Target,
+    target::{resolve_zero, Target},
     Decode, Encode,
 };
-pub use crate::dynamic::Dynamic;
+pub use crate::dynamic::{Dynamic, VPadded};
 pub use crate::fixed::{bytestring::ByteString, charstring::CharString};
 pub use crate::float::RangedFloat;
 pub use crate::int::{i31, u30, RangedInt};
 pub use crate::parse::{
-    byteparser::{ByteParser, MemoParser, ParseResult, Parser, ToParser},
-    error::ParseError,
-    hexstring::HexString,
+    byteparser::ByteParser, error::ParseError, hexstring::HexString, memoparser::MemoParser,
+    sliceparser::SliceParser, ParseResult, Parser, ToParser,
 };
-pub use crate::schema::{Bytes, LimSeq, Padded, Sequence};
+pub use crate::schema::{Bytes, FixSeq, LimSeq, Padded, Sequence, Nullable};
 pub use crate::zarith::{n::N, z::Z, Zarith};
+pub use ::lazy_static::lazy_static;

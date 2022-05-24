@@ -1,11 +1,11 @@
 use crate::conv::target::Target;
 use crate::conv::{Decode, Encode};
-use crate::parse::byteparser::ParseResult;
+use crate::parse::ParseResult;
 use crate::Parser;
 
 impl Encode for () {
     fn write_to<U: Target>(&self, buf: &mut U) -> usize {
-        crate::resolve_zero!(buf)
+        crate::resolve_zero(buf)
     }
 }
 
@@ -20,7 +20,7 @@ impl Encode for bool {
         buf.push_one(match self {
             &true => 0xff,
             &false => 0x00,
-        }) + crate::resolve_zero!(buf)
+        }) + crate::resolve_zero(buf)
     }
 }
 

@@ -21,10 +21,8 @@ impl LengthMismatchError {
 }
 
 pub mod bytestring {
-    use crate::conv::target::Target;
-    use crate::conv::{len, Decode, Encode};
-    use crate::parse::byteparser::ParseResult;
-    use crate::parse::byteparser::Parser;
+    use crate::conv::{len, target::Target, Decode, Encode};
+    use crate::parse::{ParseResult, Parser};
 
     #[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Debug)]
     pub struct ByteString<const N: usize>([u8; N]);
@@ -41,7 +39,7 @@ pub mod bytestring {
 
     impl<const N: usize> Encode for ByteString<N> {
         fn write_to<U: Target>(&self, buf: &mut U) -> usize {
-            buf.push_all(&self.0) + crate::resolve_zero!(buf)
+            buf.push_all(&self.0) + crate::resolve_zero(buf)
         }
     }
 
@@ -84,7 +82,7 @@ pub mod charstring {
 
     use crate::conv::target::Target;
     use crate::conv::{len, Decode, Encode};
-    use crate::parse::byteparser::{ParseResult, Parser};
+    use crate::parse::{ParseResult, Parser};
 
     use super::LengthMismatchError;
 
@@ -128,7 +126,7 @@ pub mod charstring {
 
     impl<const N: usize> Encode for CharString<N> {
         fn write_to<U: Target>(&self, buf: &mut U) -> usize {
-            buf.push_all(&self.contents) + crate::resolve_zero!(buf)
+            buf.push_all(&self.contents) + crate::resolve_zero(buf)
         }
     }
 

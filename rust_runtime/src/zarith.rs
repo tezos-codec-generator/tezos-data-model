@@ -12,7 +12,7 @@ macro_rules! impl_zarith {
         impl $crate::Encode for $x {
             fn write_to<U: $crate::conv::target::Target>(&self, buf: &mut U) -> usize {
                 buf.push_all(&mut <$x as $crate::zarith::Zarith>::serialize(self))
-                    + $crate::resolve_zero!(buf)
+                    + $crate::resolve_zero(buf)
             }
         }
 
@@ -27,7 +27,7 @@ macro_rules! impl_zarith {
 }
 
 pub mod n {
-    use std::{convert::TryInto, fmt::Display, ops::Deref};
+    use std::{convert::TryFrom, fmt::Display, ops::Deref};
 
     use num_bigint::BigUint;
     use rug::ops::DivRounding;
@@ -47,27 +47,19 @@ pub mod n {
         }
     }
 
-    impl Into<BigUint> for N {
-        fn into(self) -> BigUint {
-            self.0
-        }
-    }
-
-    impl<T> From<T> for N
-    where
-        BigUint: From<T>,
-    {
-        fn from(i: T) -> Self {
-            Self(BigUint::from(i))
+    impl From<N> for BigUint {
+        fn from(val: N) -> Self {
+            val.0
         }
     }
 
     macro_rules! impl_nat_coerce {
         ($src:ty) => {
-            impl TryInto<$src> for N {
-                type Error = <BigUint as TryInto<$src>>::Error;
-                fn try_into(self) -> Result<$src, Self::Error> {
-                    self.0.try_into()
+            impl TryFrom<N> for $src {
+                type Error = <$src as TryFrom<BigUint>>::Error;
+
+                fn try_from(val: N) -> Result<$src, Self::Error> {
+                    <$src as TryFrom<BigUint>>::try_from(val.0)
                 }
             }
         };
@@ -144,7 +136,7 @@ pub mod n {
 
 pub mod z {
     use crate::zarith::Zarith;
-    use std::{convert::TryInto, fmt::Display, ops::Deref};
+    use std::{convert::TryFrom, fmt::Display, ops::Deref};
 
     use num_bigint::{BigInt, BigUint, Sign};
     use rug::ops::DivRounding;
@@ -154,7 +146,7 @@ pub mod z {
 
     impl std::fmt::Debug for Z {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            write!(f, r#"ℤ({})"#, &self.0.to_string())
+            write!(f, "\u{2124}({})", &self.0.to_string())
         }
     }
 
@@ -164,27 +156,18 @@ pub mod z {
         }
     }
 
-    impl<T> From<T> for Z
-    where
-        BigInt: From<T>,
-    {
-        fn from(i: T) -> Self {
-            Self(BigInt::from(i))
-        }
-    }
-
-    impl Into<BigInt> for Z {
-        fn into(self) -> BigInt {
-            self.0
+    impl From<Z> for BigInt {
+        fn from(val: Z) -> Self {
+            val.0
         }
     }
 
     macro_rules! impl_int_coerce {
         ($src:ty) => {
-            impl TryInto<$src> for Z {
-                type Error = <BigInt as TryInto<$src>>::Error;
-                fn try_into(self) -> Result<$src, Self::Error> {
-                    self.0.try_into()
+            impl TryFrom<Z> for $src {
+                type Error = <$src as TryFrom<BigInt>>::Error;
+                fn try_from(val: Z) -> Result<$src, Self::Error> {
+                    <$src as TryFrom<BigInt>>::try_from(val.0)
                 }
             }
         };
