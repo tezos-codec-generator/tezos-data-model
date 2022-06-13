@@ -25,20 +25,21 @@
 /// # Examples
 ///
 /// ```
-/// use crate::conv::Decode;
+/// # use rust_runtime::{Decode, cstyle, hex};
 ///
 /// cstyle!(SmallPrime, u8, { Two = 2, Three = 3, Five = 5, Seven = 7 });
-/// assert_eq(SmallPrime::Five as u8, 5u8);
-/// assert_eq(SmallPrime::decode("05") as u8, SmallPrime::Five as u8);
+/// assert_eq!(SmallPrime::Five as u8, 5u8);
+/// assert_eq!(SmallPrime::decode(vec![0x05u8]) as u8, SmallPrime::Five as u8);
 /// ```
 ///
 /// #
 ///
 /// ```
+/// # use ::rust_runtime::cstyle;
 /// cstyle!(NarrowUnit, u8, { Unit = 0 });
 /// cstyle!(WideUnit, u32, { Unit = 0 });
-/// assert_eq(std::mem::size_of::<NarrowUnit>(), 1);
-/// assert_eq(std::mem::size_of::<WideUnit>(), 4);
+/// assert_eq!(std::mem::size_of::<NarrowUnit>(), 1);
+/// assert_eq!(std::mem::size_of::<WideUnit>(), 4);
 /// ```
 ///
 #[macro_export]

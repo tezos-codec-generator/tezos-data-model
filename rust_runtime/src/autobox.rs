@@ -21,14 +21,13 @@
 //!
 //! ```
 //! # use ::rust_runtime::{AutoBox, Encode, Decode, Estimable, Target, resolve_zero};
-//! pub struct U8Seq(u8, Option<AutoBox<u8>>);
+//! pub struct U8Seq(u8, Option<AutoBox<U8Seq>>);
 //!
 //! impl Encode for U8Seq {
 //!     fn write_to<U: Target>(&self, buf: &mut U) -> usize {
 //!         <u8 as Encode>::write_to(&self.0, buf) +
-//!         <Option<Autobox<u8>> as Encode>::write_to(&self.1, buf) +
-//!         resolve_zero(buf)
-//!
+//!         <Option<AutoBox<U8Seq>> as Encode>::write_to(&self.1, buf) +
+//!         resolve_zero!(buf)
 //!     }
 //! }
 //!
@@ -132,25 +131,6 @@ impl<T> AutoBox<T> {
         *(self._box)
     }
 
-    /// Returns a reference to the underlying `Box<T>` inside of a borrowed `AutoBox<T>`
-    ///
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// # use rust_runtime::AutoBox;
-    /// let mut five = AutoBox::new(5u8);
-    /// assert_eq!(&5u8, Box::as_ref(five.as_boxed()));
-    /// *(five.as_mut_inner()) *= 3;
-    /// assert_eq!(&15u8, Box::as_ref(five.as_boxed()));
-    /// ```
-    #[must_use]
-    #[cfg_attr(all(not(feature = "overzealous_inline"), feature = "zealous_inline"), inline)]
-    #[cfg_attr(feature = "overzealous_inline", inline(always))]
-    pub const fn as_boxed(&self) -> &Box<T> {
-        &self._box
-    }
-
     /// Returns a mutable reference to the underlying `Box<T>` inside of a mutably borrowed `AutoBox<T>`
     ///
     ///
@@ -159,9 +139,9 @@ impl<T> AutoBox<T> {
     /// ```
     /// # use rust_runtime::AutoBox;
     /// let mut five = AutoBox::new(5u8);
-    /// assert_eq!(&5u8, Box::as_ref(five.as_boxed()));
+    /// assert_eq!(&5u8, five.as_inner());
     /// *(five.as_mut_boxed()) = Box::new(3u8);
-    /// assert_eq!(&3u8, Box::as_ref(five.as_boxed()));
+    /// assert_eq!(&3u8, five.as_inner());
     /// ```
     #[must_use]
     #[cfg_attr(all(not(feature = "overzealous_inline"), feature = "zealous_inline"), inline)]

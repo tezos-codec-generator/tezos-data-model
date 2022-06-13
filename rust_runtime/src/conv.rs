@@ -112,10 +112,12 @@ pub trait Decode {
         Self: Sized,
         U: TryIntoParser<crate::parse::memoparser::MemoParser>,
     {
-        Self::try_decode(inp).expect(&format!(
-            "<{} as Decode>::decode_memo: unable to parse value (ParseError encountered)",
-            std::any::type_name::<Self>()
-        ))
+        Self::try_decode(inp).unwrap_or_else(|_| {
+            panic!(
+                "<{} as Decode>::decode_memo: unable to parse value (ParseError encountered)",
+                std::any::type_name::<Self>()
+            )
+        })
     }
 
     fn decode<U>(inp: U) -> Self

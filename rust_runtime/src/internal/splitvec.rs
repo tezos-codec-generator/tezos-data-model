@@ -831,7 +831,7 @@ impl<'a: 'b, 'b, T> Iterator for Spans<'a, 'b, T> {
             }
             Some(len) => {
                 let (ret, rest) = self.buf.split_at(len);
-                *(&mut self.buf) = rest;
+                self.buf = rest;
                 Some(ret)
             }
         }
@@ -863,7 +863,7 @@ impl<'a: 'b, 'b, T> DoubleEndedIterator for Spans<'a, 'b, T> {
                     .checked_sub(len)
                     .expect("Value-buffer has too few elements");
                 let (rest, ret) = self.buf.split_at(mid);
-                *(&mut self.buf) = rest;
+                self.buf = rest;
                 Some(ret)
             }
         }

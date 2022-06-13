@@ -64,9 +64,9 @@ pub const MAX_OCAML_NATIVE_INT: i32 = 0x3fff_ffff;
 /// Maximum value represntable using OCaml 30-bit unsigned integers
 ///
 /// ```
-/// # use ::rust_runtime::int::MAX_OCAML_NATIVE_INT;
-/// assert_eq!(MAX_OCAML_NATIVE_UINT, (1i32 << 30) - 1);
-/// assert_eq!(MAX_OCAML_NATIVE_UINT, i32::MAX / 2);
+/// # use ::rust_runtime::int::MAX_OCAML_NATIVE_UINT;
+/// assert_eq!(MAX_OCAML_NATIVE_UINT, (1u32 << 30) - 1);
+/// assert_eq!(MAX_OCAML_NATIVE_UINT, (u32::MAX >> 2));
 /// ```
 pub const MAX_OCAML_NATIVE_UINT: u32 = 0x3fff_ffff;
 
@@ -177,7 +177,8 @@ impl<I: Integral, const MIN: i32, const MAX: i32> RangedInt<I, MIN, MAX> {
     /// values outside of the range `[MIN, MAX]`. In turn, this destructor
     /// is the only one that is guaranteed not to panic or produce undefined
     /// behavior when applied to such out-of-bounds values.
-    pub const unsafe fn to_value_unchecked(self) -> I {
+    #[inline]
+    pub unsafe fn to_value_unchecked(self) -> I {
         self.0
     }
 

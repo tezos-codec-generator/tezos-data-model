@@ -2,7 +2,6 @@ extern crate proc_macro;
 
 use proc_macro::TokenStream;
 use quote::{format_ident, quote};
-use syn;
 
 #[proc_macro_derive(Estimable)]
 pub fn estimable_derive(input: TokenStream) -> TokenStream {

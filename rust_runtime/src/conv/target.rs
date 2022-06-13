@@ -53,7 +53,7 @@ pub trait Target {
     /// from repeated calls to `push_one` over every element of the slice in
     /// order, intercalated with binary addition:
     ///
-    /// ```no_run
+    /// ```ignore
     /// x.push_all(&b"Rust") === x.push_one(b'R') + x.push_one(b'u') + x.push_one(b's') + x.push_one(b't')
     /// ```
     ///
@@ -61,7 +61,7 @@ pub trait Target {
     /// equivalent array in local scope, the following should hold as well, both
     /// in value and effect:
     ///
-    /// ```no_run
+    /// ```ignore
     /// x.push_all(&arr) === x.push_many(arr)
     /// ```
     ///
@@ -112,7 +112,7 @@ pub type ByteCounter = std::io::Sink;
 
 impl Target for ByteCounter {
     #[inline(always)]
-    fn anticipate(self: &mut Self, _: usize) {}
+    fn anticipate(&mut self, _: usize) {}
 
     #[inline]
     fn create() -> Self {
@@ -120,7 +120,7 @@ impl Target for ByteCounter {
     }
 
     #[inline(always)]
-    fn push_one(self: &mut Self, _: u8) -> usize {
+    fn push_one(&mut self, _: u8) -> usize {
         1
     }
 
@@ -130,7 +130,7 @@ impl Target for ByteCounter {
     }
 
     #[inline(always)]
-    fn push_all(self: &mut Self, buf: &[u8]) -> usize {
+    fn push_all(&mut self, buf: &[u8]) -> usize {
         buf.len()
     }
 }

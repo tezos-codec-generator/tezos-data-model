@@ -61,9 +61,9 @@ pub const fn from_const_generic(bound: u64) -> f64 {
 /// The syntax of this macro is identical to `RangedFloat`, but with any macro-invocation
 /// delimiter pair ( `()`, `[]`, `{}` ) instead of angle-brackets (`<>`):
 ///
-/// ```no_run
+/// ```
 /// # use ::rust_runtime::RangedF64;
-/// RangedF64!(f64::MIN, f64::MAX)
+/// assert_eq!(<RangedF64!(f64::MIN, f64::MAX)>::MIN_F64, f64::MIN);
 /// ```
 ///
 /// # Examples

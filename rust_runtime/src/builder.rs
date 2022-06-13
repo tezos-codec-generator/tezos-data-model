@@ -103,6 +103,11 @@ where
 
     /// Determine the length of the Builder value in bytes
     fn len(&self) -> usize;
+
+    /// Returns `true` if the receiver contains no bytes
+    fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
 }
 
 pub mod memo;

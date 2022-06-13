@@ -131,8 +131,7 @@ impl std::fmt::Display for MemoBuffer {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let mut buf: &[u8] = &self.buf[..];
         write!(f, "[|")?;
-        let mut ls = self.lens.iter();
-        while let Some(&l) = ls.next() {
+        for &l in self.lens.iter() {
             write_all_hex(&buf[..l], f)?;
             f.write_char('|')?;
             buf = &buf[l..];
