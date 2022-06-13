@@ -14,6 +14,8 @@ impl std::fmt::Display for LengthMismatchError {
     }
 }
 
+impl std::error::Error for LengthMismatchError {}
+
 impl LengthMismatchError {
     pub(crate) fn new(expected: usize, actual: usize) -> Self {
         Self { expected, actual }
@@ -24,12 +26,21 @@ pub mod bytestring {
     use crate::conv::{len, target::Target, Decode, Encode};
     use crate::parse::{ParseResult, Parser};
 
-    #[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Debug)]
+    #[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Debug, Hash)]
     pub struct ByteString<const N: usize>([u8; N]);
+
+    impl<const N: usize> Default for ByteString<N>
+    where
+        [u8; N]: Default,
+    {
+        fn default() -> Self {
+            Self(Default::default())
+        }
+    }
 
     impl<const N: usize> From<&[u8; N]> for ByteString<N> {
         fn from(arr: &[u8; N]) -> Self {
-            Self(arr.clone())
+            Self(*arr)
         }
     }
 
@@ -39,13 +50,13 @@ pub mod bytestring {
 
     impl<const N: usize> Encode for ByteString<N> {
         fn write_to<U: Target>(&self, buf: &mut U) -> usize {
-            buf.push_all(&self.0) + crate::resolve_zero(buf)
+            buf.push_all(&self.0) + buf.resolve_zero()
         }
     }
 
     impl<const N: usize> Decode for ByteString<N> {
         fn parse<P: Parser>(p: &mut P) -> ParseResult<Self> {
-            Ok(ByteString(p.get_fixed::<N>()?))
+            Ok(ByteString(p.take_fixed::<N>()?))
         }
     }
 
@@ -86,9 +97,20 @@ pub mod charstring {
 
     use super::LengthMismatchError;
 
-    #[derive(PartialEq, Eq, PartialOrd, Ord, Debug, Clone, Copy)]
+    #[derive(PartialEq, Eq, PartialOrd, Ord, Debug, Clone, Copy, Hash)]
     pub struct CharString<const N: usize> {
         contents: [u8; N],
+    }
+
+    impl<const N: usize> Default for CharString<N>
+    where
+        [u8; N]: Default,
+    {
+        fn default() -> Self {
+            Self {
+                contents: Default::default(),
+            }
+        }
     }
 
     impl<const N: usize> len::FixedLength for CharString<N> {
@@ -126,13 +148,13 @@ pub mod charstring {
 
     impl<const N: usize> Encode for CharString<N> {
         fn write_to<U: Target>(&self, buf: &mut U) -> usize {
-            buf.push_all(&self.contents) + crate::resolve_zero(buf)
+            buf.push_all(&self.contents) + buf.resolve_zero()
         }
     }
 
     impl<const N: usize> Decode for CharString<N> {
         fn parse<P: Parser>(p: &mut P) -> ParseResult<Self> {
-            Ok(p.get_fixed::<N>()?.into())
+            Ok(p.take_fixed::<N>()?.into())
         }
     }
     #[cfg(test)]

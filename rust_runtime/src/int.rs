@@ -1,257 +1,426 @@
 use crate::conv::len::FixedLength;
 use crate::conv::{Decode, Encode};
+use crate::error::BoundsError;
 use crate::parse::ParseResult;
 use crate::Parser;
+use num_integer::Integer;
 use std::convert::{TryFrom, TryInto};
-use std::fmt::{Debug, Display};
-use crate::bound::OutOfRange;
+use std::fmt::Debug;
 
-/// Marker trait used as shorthand for the desired trait bounds on `RangedInt` backing types
-pub trait Integral: Eq + Ord + Debug + Display + Copy + Into<i64> + TryFrom<i64> {}
+mod private {
+    pub trait Sealed {}
+
+    impl Sealed for u8 {}
+    impl Sealed for i8 {}
+    impl Sealed for i16 {}
+    impl Sealed for u16 {}
+    impl Sealed for u32 {}
+    impl Sealed for i32 {}
+}
+/// Marker for suitability as 'backer' of a `RangedInt`
+///
+/// In the `data-encoding` OCaml library, range-bound integral values must
+/// be representable in 4 bytes or fewer. This means that the only legal
+/// backers for the `RangedInt` type are the following:
+///   * [`u8`] or [`i8`]
+///   * [`u16`] or [`i16`]
+///   * [`u32`] or [`i32`]
+///
+/// This is a sealed trait that cannot be implemented downstream.
+pub trait Integral
+where
+    Self: Copy + std::hash::Hash + std::fmt::Display,
+    Self: Integer + Into<i64> + TryFrom<i64>,
+    Self: private::Sealed,
+{
+}
+
 impl Integral for u8 {}
 impl Integral for i8 {}
-impl Integral for i16 {}
 impl Integral for u16 {}
+impl Integral for i16 {}
 impl Integral for u32 {}
 impl Integral for i32 {}
 
+/// Minimum value representable using OCaml 31-bit integers
+///
+/// ```
+/// # use ::rust_runtime::int::MIN_OCAML_NATIVE_INT;
+/// assert_eq!(MIN_OCAML_NATIVE_INT, -(1i32 << 30));
+/// assert_eq!(MIN_OCAML_NATIVE_INT, i32::MIN / 2);
+/// ```
+///
+pub const MIN_OCAML_NATIVE_INT: i32 = -0x4000_0000;
 
-impl<I, const MIN: i32, const MAX: i32> Into<i64> for RangedInt<I, MIN, MAX>
-where
-    I: Integral,
-{
-    fn into(self) -> i64 {
-        self.val.into()
-    }
-}
+/// Maximum value represntable using OCaml 31-bit integers
+///
+/// ```
+/// # use ::rust_runtime::int::MAX_OCAML_NATIVE_INT;
+/// assert_eq!(MAX_OCAML_NATIVE_INT, (1i32 << 30) - 1);
+/// assert_eq!(MAX_OCAML_NATIVE_INT, i32::MAX / 2);
+/// ```
+pub const MAX_OCAML_NATIVE_INT: i32 = 0x3fff_ffff;
 
-impl<I, const MIN: i32, const MAX: i32> Into<i32> for RangedInt<I, MIN, MAX>
-where
-    I: Integral + Into<i32>,
-{
-    fn into(self) -> i32 {
-        self.val.into()
-    }
-}
+/// Maximum value represntable using OCaml 30-bit unsigned integers
+///
+/// ```
+/// # use ::rust_runtime::int::MAX_OCAML_NATIVE_INT;
+/// assert_eq!(MAX_OCAML_NATIVE_UINT, (1i32 << 30) - 1);
+/// assert_eq!(MAX_OCAML_NATIVE_UINT, i32::MAX / 2);
+/// ```
+pub const MAX_OCAML_NATIVE_UINT: u32 = 0x3fff_ffff;
 
-impl From<u30> for usize {
-    fn from(val: u30) -> Self {
-        val.val as usize
-    }
-}
-
-impl<I, const MIN: i32, const MAX: i32> TryFrom<i32> for RangedInt<I, MIN, MAX>
-where
-    I: Integral,
-{
-    type Error = OutOfRange<i64>;
-
-    fn try_from(x: i32) -> Result<Self, Self::Error> {
-        match I::try_from(i64::from(x)) {
-            Ok(val) => OutOfRange::restrict(val, MIN, MAX).map(|val| Self { val }),
-            Err(_) => OutOfRange::restrict(x, MIN, MAX)
-                .map(|val| panic!("Incoherent range [{},{}] on {}", MIN, MAX, val)),
-        }
-    }
-}
-
-impl TryFrom<usize> for u30 {
-    type Error = OutOfRange<i64>;
-
-    fn try_from(x: usize) -> Result<Self, Self::Error> {
-        match u32::try_from(x) {
-            Ok(val) => OutOfRange::restrict(val, 0u32, 0x3fff_ffffu32).map(|val| Self { val }),
-            Err(_) => Err(OutOfRange::Overflow {
-                max: 0x3fff_ffffi64,
-                val: x as i64,
-            }),
-        }
-    }
-}
-impl<I, const MIN: i32, const MAX: i32> TryFrom<u32> for RangedInt<I, MIN, MAX>
-where
-    I: Integral,
-{
-    type Error = OutOfRange<i64>;
-
-    fn try_from(x: u32) -> Result<Self, Self::Error> {
-        match I::try_from(i64::from(x)) {
-            Ok(val) => OutOfRange::restrict(val, MIN, MAX).map(|val| Self { val }),
-            Err(_) => OutOfRange::restrict(x, MIN, MAX)
-                .map(|val| panic!("Incoherent range [{},{}] on {}", MIN, MAX, val)),
-        }
-    }
-}
-
-impl<I, const MIN: i32, const MAX: i32> Into<u32> for RangedInt<I, MIN, MAX>
-where
-    I: Integral + Into<u32>,
-{
-    fn into(self) -> u32 {
-        self.val.into()
-    }
-}
-
-impl<I, const MIN: i32, const MAX: i32> RangedInt<I, MIN, MAX>
-where
-    I: Integral,
-{
-    const SANITY: bool = MIN >= -0x4000_0000i32 && MAX <= 0x3fff_ffffi32 && MIN <= MAX;
-
-    fn precheck() {
-        if !Self::SANITY {
-            panic!(
-                "RangedInt: generic bounds exceed 31-bit signed integer range: [{}, {}] is invalid",
-                MIN, MAX
-            )
-        }
-    }
-
-    pub fn new(val: I) -> Self {
-        Self::precheck();
-
-        let val64: i64 = val.into();
-
-        if val64 >= (MIN as i64) && val64 <= (MAX as i64) {
-            Self { val }
-        } else {
-            panic!(
-                "RangedInt::new: argument value {} out of range [{}, {}]",
-                val, MIN, MAX
-            );
-        }
-    }
-}
+/// Integral value that is implicitly confined to a constant range `[MIN,MAX]`
+///
+/// `I: Integral` is some type that is capable of representing values in
+/// said range, and will typically be as narrow as possible. As `Integral`
+/// is a sealed trait, it is guaranteed that only `u8`,`u16`,`u32,
+/// and their respective signed equivalents are allowed in this position.
+///
+/// The generic const bounds must satisfy the following invariant in order
+/// to be a sound type:
+///
+/// [`MIN_OCAML_NATIVE_INT`]` <= MIN <= MAX <= `[`MAX_OCAML_NATIVE_INT`]
+///
+/// If this condition is not met, the type itself is unsound, and
+/// attempting to use such a type may result in a runtime panic.
+#[derive(Clone, Copy, Eq, Ord, PartialEq, PartialOrd, Debug, Hash)]
+#[repr(transparent)]
+pub struct RangedInt<I: Integral, const MIN: i32, const MAX: i32>(I);
 
 #[allow(non_camel_case_types)]
 #[allow(dead_code)]
-pub type u30 = RangedInt<u32, 0, 0x3fff_ffff>;
+pub type u30 = RangedInt<u32, 0, MAX_OCAML_NATIVE_INT>;
 
 #[allow(non_camel_case_types)]
 #[allow(dead_code)]
-pub type i31 = RangedInt<i32, -0x4000_0000i32, 0x3fff_ffffi32>;
+pub type i31 = RangedInt<i32, MIN_OCAML_NATIVE_INT, MAX_OCAML_NATIVE_INT>;
 
-#[macro_export]
-macro_rules! impl_encode_words {
-    ($a:ty) => {
-        impl Encode for $a {
-            fn write_to<U: $crate::conv::target::Target>(&self, buf: &mut U) -> usize {
-                buf.push_all(&self.to_be_bytes()) + crate::resolve_zero(buf)
+impl<I: Integral, const MIN: i32, const MAX: i32> RangedInt<I, MIN, MAX> {
+    /// Associated constant used for sanity-checking of the type-level generics
+    /// `MIN` and `MAX`.
+    ///
+    /// `true` if and only if the selected `MIN` and `MAX` values represent
+    /// a sound type.
+    #[cfg(feature = "invalid_range_checking")]
+    const SANITY: bool = MIN >= MIN_OCAML_NATIVE_INT && MAX <= MAX_OCAML_NATIVE_INT && MIN <= MAX;
+
+    /// Converts a value `x` of the backer type `I` to a numerically equivalent value
+    /// of type `RangedInt<I, MIN, MAX>`
+    ///
+    /// This function does not check that the provided value is in range, nor that the range
+    /// itself is sound.
+    ///
+    /// # Safety
+    ///
+    /// This function does not panic, but it can be used to produce incoherent values or
+    /// values of theroetically unpopulated types, and so using any value returned by this
+    /// unsafe function may cause undefined behavior down the line.
+    #[must_use]
+    #[inline]
+    pub unsafe fn from_value_unchecked(x: I) -> Self {
+        Self(x)
+    }
+
+    /// Converts a value `x` of the backer type `I` to a numerically equivalent value
+    /// of type `RangedInt<I, MIN, MAX>`, checking that the range `[MIN, MAX]` is
+    /// coherent and that `x` falls into that range.
+    ///
+    /// # Panics
+    ///
+    /// If either of the checked conditions are violated, this function will panic.
+    #[must_use]
+    #[inline]
+    pub fn from_value(x: I) -> Self {
+        Self::try_from_value(x).expect("RangedInt::from_value encountered Err")
+    }
+
+    /// Attempt to convert a value `x` of the backer type `I` to a numerically equivalent
+    /// value of type `RangedInt<I, MIN, MAX>`, checking that the range `[MIN, MAX]` is
+    /// coherent and that `x` falls into that range.
+    ///
+    /// Returns `Ok` if the checks are satisfied, or `Err(e)` otherwise, where
+    /// `e` is an indication of what required condition failed to hold for the
+    /// attempted conversion.
+    ///
+    /// # Panics
+    ///
+    /// This function will never panic under normal compilations.
+    ///
+    /// If the `invalid-range-checking` feature is turned on, however, this
+    /// function will panic if `[MIN, MAX]` is not a valid sub-range of
+    /// `[`[`MIN_OCAML_NATIVE_INT`]`, `[`MAX_OCAML_NATIVE_INT`]`]`
+    #[inline]
+    pub fn try_from_value(x: I) -> Result<Self, crate::error::BoundsError<i64>> {
+        #[cfg(feature = "invalid_range_checking")]
+        assert!(
+            Self::SANITY,
+            "type-level bounds on RangedInt<{},{}> are invalid",
+            MIN,
+            MAX
+        );
+
+        Ok(Self(BoundsError::<i64>::restrict(x, MIN, MAX)?))
+    }
+
+    /// Destruct and return the numeric value of a `RangedInt<I, MIN, MAX>`
+    /// without checking that it is in-range, or that the invariant `MIN <= MAX`
+    /// holds.
+    ///
+    /// No checks are performed, and so values returned from calls to this destructor
+    /// are not guaranteed to be in the implicit range `[MIN, MAX]`.
+    ///
+    /// # Safety
+    ///
+    /// This destructor is a dual to the constructor [`from_value_unchecked`],
+    /// which is the only method that allows for the construction of numeric
+    /// values outside of the range `[MIN, MAX]`. In turn, this destructor
+    /// is the only one that is guaranteed not to panic or produce undefined
+    /// behavior when applied to such out-of-bounds values.
+    pub const unsafe fn to_value_unchecked(self) -> I {
+        self.0
+    }
+
+    /// Extract the numeric value of a `RangedInt<I, MIN, MAX>`, checking that
+    /// the value is in range, and that the range itself is coherent.
+    ///
+    /// # Panics
+    ///
+    ///
+    pub fn to_value(self) -> I {
+        #[cfg(feature = "invalid_range_checking")]
+        assert!(
+            Self::SANITY,
+            "type-level bounds on RangedInt<{},{}> are invalid",
+            MIN,
+            MAX
+        );
+
+        match crate::error::BoundsError::<i64>::restrict(self.0, MIN, MAX) {
+            Ok(x) => x,
+            Err(err) => panic!("RangedInt::to_value unable to destruct: {}", err),
+        }
+    }
+}
+
+impl<I: Integral, const MIN: i32, const MAX: i32> AsRef<I> for RangedInt<I, MIN, MAX> {
+    fn as_ref(&self) -> &I {
+        &self.0
+    }
+}
+
+pub mod ranged_int_impls {
+    use super::*;
+
+    macro_rules! impl_default_clamped {
+        ( $t:ty ) => {
+            impl<const MIN: i32, const MAX: i32> Default for RangedInt<$t, MIN, MAX> {
+                /// Returns the value in the range [MIN..MAX] that is closest to the
+                /// value of `Default::default()` for the backing type.
+                fn default() -> Self {
+                    Self((<$t>::default() as i32).clamp(MIN, MAX) as $t)
+                }
             }
-        }
-    };
-}
-#[derive(PartialEq, PartialOrd, Eq, Ord, Debug, Clone, Copy)]
-pub struct RangedInt<I, const MIN: i32, const MAX: i32>
-where
-    I: Eq + Ord + Debug + Display + Copy,
-{
-    val: I,
-}
-
-impl_encode_words!(u8);
-impl_encode_words!(i8);
-impl_encode_words!(u16);
-impl_encode_words!(i16);
-impl_encode_words!(u32);
-impl_encode_words!(i32);
-impl_encode_words!(i64);
-impl_encode_words!(u64);
-
-impl Decode for u8 {
-    fn parse<P: Parser>(p: &mut P) -> ParseResult<Self> {
-        p.get_u8()
-    }
-}
-
-impl Decode for i8 {
-    fn parse<P: Parser>(p: &mut P) -> ParseResult<Self> {
-        p.get_i8()
-    }
-}
-
-impl Decode for u16 {
-    fn parse<P: Parser>(p: &mut P) -> ParseResult<Self> {
-        p.get_u16()
-    }
-}
-
-impl Decode for i16 {
-    fn parse<P: Parser>(p: &mut P) -> ParseResult<Self> {
-        p.get_i16()
-    }
-}
-
-impl Decode for i32 {
-    fn parse<P: Parser>(p: &mut P) -> ParseResult<Self> {
-        p.get_i32()
-    }
-}
-
-impl Decode for u32 {
-    fn parse<P: Parser>(p: &mut P) -> ParseResult<Self> {
-        p.get_u32()
-    }
-}
-
-impl Decode for i64 {
-    fn parse<P: Parser>(p: &mut P) -> ParseResult<Self> {
-        p.get_i64()
-    }
-}
-
-impl Decode for u64 {
-    fn parse<P: Parser>(p: &mut P) -> ParseResult<Self> {
-        p.get_u64()
-    }
-}
-
-impl<I, const MIN: i32, const MAX: i32> Encode for RangedInt<I, MIN, MAX>
-where
-    I: Integral + Encode,
-    <I as TryFrom<i64>>::Error: std::fmt::Debug,
-{
-    fn write_to<U: crate::conv::target::Target>(&self, buf: &mut U) -> usize {
-        let enc_val: I = if MIN > 0 {
-            let val: i64 = (*self).val.into();
-            let min: i64 = MIN.into();
-            (val - min).try_into().unwrap()
-        } else {
-            (*self).val
         };
-        enc_val.write_to(buf) + crate::resolve_zero(buf)
     }
-}
 
-impl<I: Integral + FixedLength, const MIN: i32, const MAX: i32> FixedLength
-    for RangedInt<I, MIN, MAX>
-{
-    const LEN: usize = I::LEN;
-}
+    impl_default_clamped!(u8);
+    impl_default_clamped!(i8);
+    impl_default_clamped!(u16);
+    impl_default_clamped!(i16);
+    impl_default_clamped!(u32);
+    impl_default_clamped!(i32);
 
-impl<I, const MIN: i32, const MAX: i32> Decode for RangedInt<I, MIN, MAX>
-where
-    I: Integral + Decode,
-    <I as TryFrom<i64>>::Error: std::fmt::Debug,
-{
-    fn parse<P: Parser>(p: &mut P) -> ParseResult<Self> {
-        let raw = I::parse(p)?;
-        if MIN > 0 {
-            let rval: i64 = raw.into() + i64::from(MIN);
-            match OutOfRange::<i64>::restrict(rval, MIN, MAX) {
-                Ok(val) => match val.try_into() {
-                    Ok(x) => Ok(Self::new(x)),
-                    Err(_) => unreachable!(), /* MIN <= val <= MAX should guarantee val is in its representational range */
-                },
-                Err(oor) => Err(oor.into()),
+    macro_rules! minval_maxval {
+        ( $t:ty ) => {
+            impl<const MIN_I32: i32, const MAX_I32: i32> RangedInt<$t, MIN_I32, MAX_I32> {
+                pub const MIN: $t = MIN_I32 as $t;
+
+                pub const MAX: $t = MAX_I32 as $t;
+
+
+                /// Returns the minimum legal value of `Self`
+                #[inline]
+                pub const fn min_val() -> Self {
+                    Self(Self::MIN)
+                }
+
+                /// Returns the maximum legal value of `Self`
+                #[inline]
+                pub const fn max_val() -> Self {
+                    Self(Self::MAX)
+                }
             }
-        } else {
-            match OutOfRange::restrict(raw, MIN, MAX) {
-                Ok(val) => Ok(Self::new(val)),
-                Err(oor) => Err(oor.into()),
+        };
+    }
+
+    minval_maxval!(u8);
+    minval_maxval!(i8);
+    minval_maxval!(u16);
+    minval_maxval!(i16);
+    minval_maxval!(u32);
+    minval_maxval!(i32);
+
+    macro_rules! impl_from_ranged_int {
+    ( $backer:ty => $( $dest:ty ),+ ) => {
+        $(
+            impl<const MIN: i32, const MAX: i32> From<RangedInt<$backer, MIN, MAX>> for $dest {
+                fn from(val: RangedInt<$backer, MIN, MAX>) -> Self {
+                    val.0 as $dest
+                }
+            }
+        )+
+        };
+    }
+
+    macro_rules! impl_try_from_ranged_int {
+    ( $backer:ty => $( $dest:ty ),+ ) => {
+        $(
+            impl<const MIN: i32, const MAX: i32> TryFrom<RangedInt<$backer, MIN, MAX>> for $dest {
+                type Error = <$backer as TryInto<$dest>>::Error;
+
+                fn try_from(val: RangedInt<$backer, MIN, MAX>) -> Result<Self, Self::Error> {
+                    val.0.try_into()
+                }
+            }
+        )+
+        };
+    }
+
+    macro_rules! impl_try_into_ranged_int {
+        (@for_types $( $src:ty ),+ => $backer:ty ) => {
+            $(
+            impl<const MIN: i32, const MAX: i32> TryFrom<$src> for RangedInt<$backer, MIN, MAX> {
+                type Error = BoundsError<i128>;
+
+                fn try_from(val: $src) -> Result<Self, Self::Error> {
+                    match BoundsError::restrict(val, MIN, MAX) {
+                        Ok(x) => unsafe { Ok(Self::from_value_unchecked(x as $backer)) }
+                        Err(e) => Err(e)
+                    }
+                }
+            }
+            )+
+        };
+        ( $( $backer:ty ),+ ) => {
+            $(
+            impl_try_into_ranged_int!(@for_types u8, i8, u16, i16, u32, i32, u64, i64, usize, isize => $backer );
+            )+
+        }
+    }
+
+    impl_from_ranged_int!(u8 => u8, u16, i16, u32, i32, u64, i64, usize, isize);
+    impl_from_ranged_int!(i8 => i8, i16, i32, i64, isize);
+    impl_from_ranged_int!(i16 => i16, i32, i64, isize);
+    impl_from_ranged_int!(u16 => u32, i32, u64, i64, usize, isize);
+    impl_from_ranged_int!(i32 => i32, i64, isize);
+    impl_from_ranged_int!(u32 => u32, i32, u64, i64, usize, isize);
+
+    impl_try_from_ranged_int!(u8 => i8);
+    impl_try_from_ranged_int!(u16 => i8, u8, i16);
+    impl_try_from_ranged_int!(u32 => i8, u8, i16, u16);
+
+    impl_try_from_ranged_int!(i8 => u8, u16, u32, u64, usize);
+    impl_try_from_ranged_int!(i16 => i8, u8, u16, u32, u64, usize);
+    impl_try_from_ranged_int!(i32 => i8, u8, i16, u16, u32, u64, usize);
+
+    impl_try_into_ranged_int!(u8, i8, u16, i16, u32, i32);
+
+    macro_rules! impl_numeric_fmt {
+        ( $( $trait:ident ),+ ) => {
+            $( impl<I, const MIN: i32, const MAX: i32> std::fmt::$trait for RangedInt<I, MIN, MAX>
+            where
+                I: Integral + std::fmt::$trait,
+            {
+                fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                    <I as std::fmt::$trait>::fmt(self.as_ref(), f)
+                }
+            }
+            )+
+        };
+    }
+
+    impl_numeric_fmt!(Binary, Octal, LowerHex, UpperHex);
+
+    impl<I, const MIN: i32, const MAX: i32> Encode for RangedInt<I, MIN, MAX>
+    where
+        I: Integral + Encode,
+        <I as TryFrom<i64>>::Error: std::fmt::Debug,
+    {
+        fn write_to<U: crate::conv::target::Target>(&self, buf: &mut U) -> usize {
+            let enc_val = if MIN > 0 {
+                let val: i64 = self.to_value().into();
+                let min: i64 = MIN.into();
+                (val - min).try_into().unwrap()
+            } else {
+                self.to_value()
+            };
+            enc_val.write_to(buf) + buf.resolve_zero()
+        }
+    }
+
+    impl<I, const MIN: i32, const MAX: i32> FixedLength for RangedInt<I, MIN, MAX>
+    where
+        I: Integral + FixedLength,
+    {
+        const LEN: usize = I::LEN;
+    }
+
+    impl<I, const MIN: i32, const MAX: i32> Decode for RangedInt<I, MIN, MAX>
+    where
+        I: Integral + Decode,
+        <I as TryFrom<i64>>::Error: std::fmt::Debug,
+    {
+        fn parse<P: Parser>(p: &mut P) -> ParseResult<Self> {
+            let raw = I::parse(p)?;
+            if MIN > 0 {
+                let adjusted: i64 = <I as Into<i64>>::into(raw) + i64::from(MIN);
+                match BoundsError::<i64>::restrict(adjusted, MIN, MAX) {
+                    Ok(val) => match val.try_into() {
+                        Ok(x) => Ok(unsafe { Self::from_value_unchecked(x) }),
+                        Err(_) => unreachable!(), /* MIN <= val <= MAX should guarantee val is in its representational range */
+                    },
+                    Err(oor) => Err(oor.into()),
+                }
+            } else {
+                match BoundsError::<i64>::restrict(raw, MIN, MAX) {
+                    Ok(val) => Ok(unsafe { Self::from_value_unchecked(val) }),
+                    Err(oor) => Err(oor.into()),
+                }
             }
         }
     }
+}
+
+pub mod __impls {
+    macro_rules! impl_transcode_be_bytes {
+        ($a:ty) => {
+            impl $crate::conv::Encode for $a {
+                fn write_to<U: $crate::conv::target::Target>(&self, buf: &mut U) -> usize {
+                    buf.push_all(&self.to_be_bytes()) + buf.resolve_zero()
+                }
+            }
+
+            impl $crate::conv::Decode for $a {
+                #[inline(always)]
+                fn parse<P: $crate::parse::Parser>(
+                    p: &mut P,
+                ) -> $crate::parse::error::ParseResult<Self> {
+                    const N: usize = <$a as $crate::conv::len::FixedLength>::LEN;
+                    p.take_fixed::<N>().map(<$a>::from_be_bytes)
+                }
+            }
+        };
+    }
+
+    impl_transcode_be_bytes!(u8);
+    impl_transcode_be_bytes!(i8);
+    impl_transcode_be_bytes!(u16);
+    impl_transcode_be_bytes!(i16);
+    impl_transcode_be_bytes!(u32);
+    impl_transcode_be_bytes!(i32);
+    impl_transcode_be_bytes!(i64);
+    impl_transcode_be_bytes!(u64);
 }
 
 #[cfg(test)]
@@ -322,9 +491,9 @@ mod tests {
     #[test]
     fn u30_encode_decode() {
         let cases: [(u30, &'static str); 3] = [
-            (u30::new(0x0000_0000), "00000000"),
-            (u30::new(0x0000_0001), "00000001"),
-            (u30::new(0x3fff_ffff), "3fffffff"),
+            (u30::from_value(0x0000_0000), "00000000"),
+            (u30::from_value(0x0000_0001), "00000001"),
+            (u30::from_value(0x3fff_ffff), "3fffffff"),
         ];
         encode_decode(cases)
     }
@@ -332,11 +501,11 @@ mod tests {
     #[test]
     fn i31_encode_decode() {
         let cases: [(i31, &'static str); 5] = [
-            (i31::new(0x0000_0000), "00000000"),
-            (i31::new(0x0000_0001), "00000001"),
-            (i31::new(0x3fff_ffff), "3fffffff"),
-            (i31::new(-0x4000_0000), "c0000000"),
-            (i31::new(-1), "ffffffff"),
+            (i31::from_value(0x0000_0000), "00000000"),
+            (i31::from_value(0x0000_0001), "00000001"),
+            (i31::from_value(0x3fff_ffff), "3fffffff"),
+            (i31::from_value(-0x4000_0000), "c0000000"),
+            (i31::from_value(-1), "ffffffff"),
         ];
         encode_decode(cases)
     }

@@ -10,17 +10,25 @@ name = "rust_runtime"
 path = "src/lib.rs"
 bench = false
 
+[features]
+check_parser_on_drop = []
+panic_on_incomplete_parse = ["check_parser_on_drop"]
+arrayvec_fixseq = ["arrayvec"]
+enc_len_estimable_override = []
+invalid_range_checking = []
+implicit_hexstring = []
+check_padding = []
+index_binary_formatting = []
+unfreeze_spanbuffer = []
+
 [dependencies]
-bitvec = "0.22"
 lazy_static = "1.4.0"
-
-[dependencies.num-bigint]
-version = "0.3"
-
-[dependencies.rug]
-version = "1.13"
-default-features = false
-features = ["integer"]
+num-bigint = "0.4.3"
+num-integer = "0.1"
+encode_derive = { path = "encode_derive", version = "0.1.0" }
+decode_derive = { path = "decode_derive", version = "0.1.0" }
+estimable_derive = { path = "estimable_derive", version = "0.1.0" }
+arrayvec = { version = "0.7.2", optional = true }
 
 [dev-dependencies]
 criterion = "0.3"

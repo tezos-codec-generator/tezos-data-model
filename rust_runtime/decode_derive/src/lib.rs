@@ -11,38 +11,45 @@ pub fn decode_derive(input: TokenStream) -> TokenStream {
     impl_decode(&ast)
 }
 
-
 fn impl_decode(ast: &syn::DeriveInput) -> TokenStream {
+    let decode_trait = quote! { rust_runtime::conv::Decode };
+    let parser_trait = quote! { rust_runtime::parse::Parser };
+    let parse_result_type = quote! { rust_runtime::parse::ParseResult };
+
+
     let name = &ast.ident;
     let gen = match &ast.data {
-        syn::Data::Enum(_) => unimplemented!(),
-        syn::Data::Union(_) => unimplemented!(),
+        syn::Data::Enum(_) => unimplemented!("Derive macro `Decode` not implemented for enums"),
+        syn::Data::Union(_) => unimplemented!("Derive macro `Decode` not implemented for unions"),
         syn::Data::Struct(syn::DataStruct { fields, .. }) => match fields {
             syn::Fields::Unit => {
                 quote! {
-                    impl Decode for #name {
-                        fn parse<P: Parser>(_: &mut P) -> ParseResult<Self> {
+                    impl #decode_trait for #name {
+                        fn parse<P: #parser_trait>(_: &mut P) -> #parse_result_type<Self> {
                             Ok(Self)
                         }
                     }
                 }
-            },
-            syn::Fields::Unnamed(syn::FieldsUnnamed { unnamed, ..}) => {
+            }
+            syn::Fields::Unnamed(syn::FieldsUnnamed { unnamed, .. }) => {
                 let ty = unnamed.iter().map(|x| &x.ty);
                 quote! {
-                    impl Decode for #name {
-                        fn parse<P: Parser>(p: &mut P) -> ParseResult<Self> {
-                            Ok(Self(#( <#ty as Decode>::parse(p)? ),*))
+                    impl #decode_trait for #name {
+                        fn parse<P: #parser_trait>(p: &mut P) -> #parse_result_type<Self> {
+                            Ok(Self(#( <#ty as #decode_trait>::parse(p)? ),*))
                         }
                     }
                 }
-            },
-            syn::Fields::Named(syn::FieldsNamed { named, ..}) => {
-                let (fname, ty) : (Vec<&syn::Ident>, Vec<&syn::Type>) = named.iter().map(|x| (x.ident.as_ref().unwrap(), &x.ty)).unzip();
+            }
+            syn::Fields::Named(syn::FieldsNamed { named, .. }) => {
+                let (fname, ty): (Vec<&syn::Ident>, Vec<&syn::Type>) = named
+                    .iter()
+                    .map(|x| (x.ident.as_ref().unwrap(), &x.ty))
+                    .unzip();
                 quote! {
-                    impl Decode for #name {
-                        fn parse<P: Parser>(p: &mut P) -> ParseResult<Self> {
-                            Ok(Self { #( #fname: <#ty as Decode>::parse(p)? ),* })
+                    impl #decode_trait for #name {
+                        fn parse<P: #parser_trait>(p: &mut P) -> #parse_result_type<Self> {
+                            Ok(Self { #( #fname: <#ty as #decode_trait>::parse(p)? ),* })
                         }
                     }
                 }

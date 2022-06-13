@@ -1,4 +1,4 @@
-//! Traits for determining the precise length of the serialized form of a value
+//! Oracle for the exact byte-length of the serialized form of a value
 //!
 //! This module contains the [`FixedLength`], [`ScalarLength`], and [`Estimable`]
 //! hierarchy of traits, with `FixedLength ⊨ ScalarLength ⊨ Estimable`
@@ -10,42 +10,56 @@
 //! implementations are explicated. It encompasses the most general behavior required for
 //! measuring the precise number of bytes in the serialized form of an encodable type, but
 //! does not require that the type be encodable to implement, even there is little use in
-//! implementing [`Estimable`] on non-[`Encode`](super::Encode) types.
+//! implementing [`Estimable`] on non-[`Encode`](../trait.Encode.html) types.
 //!
 //! # FixedLength vs. ScalarLength
 //!
-//! [`FixedLength`] is the maximal refinement of [`Estimable`], and requires the definition
+//! `FixedLength` is the maximal refinement of `Estimable`, and requires the definition
 //! of only item, an associated constant `LEN`, equal to the exact and invariant number of
-//! bytes in the serialized form of all possible values of a particular type. It necessarily
-//! must be either a primitive type (`u*/i*/f*` numeric types, `bool`, `()`), or be a product-type
-//! (anonymous tuple or struct) all of whose arguments are themselves FixedLength. Implementations
-//! are only provided for a certain subset of primitives that are used in the `data-encoding` schema.
+//! bytes in the serialized form of all possible values of a particular type.
 //!
-//! (While it is technically possible to blanket-implement `FixedLength` for tuples all of whose argument
-//! types are themselves implementors of FixedLength, doing so would only complicate the process of
-//! generating codec modules for non-struct tuple codecs, as it would require an additional check to
-//! ensure that adding a `#[derive(Estimable)]` attribute to the definition would not introduce conflicts
-//! in cases when the codec type being defined would be covered by such a blanket implementation.)
+//! A type is fixed-length if it satisfies any of the following descriptors
+//! :
+//!   * Types that are zero-width encoded, such as `()` (`LEN := 0`)
+//!   * `Nullable<T>` where `T: FixedLength` with `T::LEN == 0` (`LEN := 0`, so this is recursive)
+//!   * `Option<T>` where `T: FixedLength` with `T::LEN == 0` (`LEN := 1`)
+//!   * bool (`LEN := 1`)
+//!   * Fixed-precision numeric types `uX/iX/fX` (`LEN := X / 8`)
+//!   * `RangedInt<T, _, _>` and `RangedFloat<_, _>` (as above)
+//!   * `FixSeq<T, N>` where `T: FixedLength` (`LEN := N * T::LEN`)
+//!   * `Padded<T, N>` where `T: FixedLength` (`LEN := N + T::LEN`)
+//!   * `VPadded<T, N>` where `T: FixedLength` (`LEN := T::LEN`)
+//!   * `Dynamic<S, T>` where `T: FixedLength` (`LEN := S::LEN + T::LEN`)
+//!   * Enums defined using the `adt::cstyle` macro
+//!   * Enums defined using the `adt:data` macro whose variant payload types are all of the same constant length
+//!   * Any record or tuple, all of whose component types are fixed-length
 //!
-//! In contrast, [`ScalarLength`] is a relaxed supertrait of [`FixedLength`] whose only requirement
-//! is that the serialized form of the type is precisely the concatenation of a variable but easily
-//! calculable number of segments of heterogenous and invariant length. In practice, this covers
-//! all types that are array-like, whether generic or monomorphic, such as `Vec<T: FixedLength>` and
-//! `String`. As there is very little room for user-definition of custom array-like types within
-//! the schema, this is far less likely to be implemented directly by a consumer of this library.
+//! (Note that this is purely descriptive, and that implementations of `FixedLength` may not always
+//! be provided or even possible for certain cases, as broader blanket implementations of `Estimable`
+//! would be precluded).
+//!
+//! [`ScalarLength`] is a supertrait of [`FixedLength`] for types whose length is entirely scalar;
+//! namely, the only variability in length is by adding or removing components of a constant fixed length,
+//! and the number of such components can be queried cheaply.
+//! In practice, this covers all types that are array-like over fixed-length elements, such as
+//! `Vec<T: FixedLength>` and `String`. As there is very little room for user-definition of custom array-like
+//! types within the schema, this is far less likely to be implemented directly by a consumer of this library.
 //!
 //! As there are blanket implementations of the form `impl<T: FixedLength> ScalarLength for T`
 //! and `impl<T: ScalarLength> Estimable for T` included in this module, it is only necessary to define
 //! the most specific refinement of `Estimable` for a custom type for all `Estimable` trait bounds to
-//! be satisfiable and all `Estimable` methods to be usable.
+//! be satisfiable and all `Estimable` methods to be usable. For blanket implementations where the
+//! length of serialization includes the length of some generic type, it is recommended to blanket-implement
+//! `Estimable` as it is the most general case.
 //!
 //! # Usage
 //!
-//! For the most part, these traits should not be hand-implemented without precise
-//! knowledge of the codec format. The [`estimable_derive`](::estimable_derive) crate
-//! provides a derive macro for `Estimable`, which is used to provide boilerplate-free
-//! implementations of Estimable for locally defined structs (without extant support for enums or unions)
-//! in codec modules generated using the `codec_generator` project pipeline.
+//! For the most part, these traits should not be hand-implemented without
+//! precise knowledge of the codec format. This crate re-exports a
+//! derive macro for `Estimable`, which generates implementations
+//! of Estimable for locally defined structs, primarily used in codec modules
+//! generated using the `codec_generator` project pipeline. This macro is also
+//! used within the `adt::data` macro defined in this crate.
 //!
 //! # Estimable for Enums
 //!
@@ -116,6 +130,8 @@ impl<T: FixedLength> ScalarLength for T {
 
     type Elem = Self;
 
+    /// Blanket implementation based on `FixedLength`
+    /// that returns `1`
     fn n_elems(&self) -> usize {
         1
     }
@@ -123,11 +139,12 @@ impl<T: FixedLength> ScalarLength for T {
 
 /// Trait used to provide efficient and precise length-predictions for the binary serialization
 /// of a type, to be used both for pre-determination of the length-prefix when serializing
-/// [`Dynamic`][crate::dynamic::Dynamic] values, and when pre-allocating a large-enough buffer to write
+/// `Dynamic` values, and when pre-allocating a large-enough buffer to write
 /// the entire serialized form of a value without reallocation.
 ///
 /// Does not necessitate that `Self: Encode`, but there is little benefit to be gained from
-/// implementing this trait without a corresponding `Encode` implementation to optimize or facilitate in doing so.
+/// implementing this trait without a corresponding `Encode` implementation to optimize or
+/// facilitate in doing so.
 pub trait Estimable {
     /// Optional override indicating that the length is a constant value for all possible values of `Self`.
     ///
@@ -160,7 +177,12 @@ impl<T> Estimable for Option<T>
 where
     T: Estimable,
 {
-    const KNOWN: Option<usize> = None;
+    const KNOWN: Option<usize> = {
+        match <T as Estimable>::KNOWN {
+            Some(0) => Some(1),
+            _ => None,
+        }
+    };
 
     fn unknown(&self) -> usize {
         match self {

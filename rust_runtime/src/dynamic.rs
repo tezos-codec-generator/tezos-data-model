@@ -1,27 +1,61 @@
-use crate::{
-    conv::{
-        len::{Estimable, FixedLength},
-        Decode, Encode, EncodeLength,
-    },
-    int::u30,
-    parse::{ParseResult, Parser},
-};
-use std::{
-    convert::TryFrom,
-    fmt::{Debug, Display},
-    marker::PhantomData,
-    ops::Deref,
-};
+//! Wrapper types for variable-length values
+//!
+//! This module provides wrapper types that model
+//! the two main patterns by which values of variable
+//! serialization length can be parsed unambiguously
+//! in the context of an arbitrary `data-encoding` binary schema.
+//!
+//! # Dynamic Wrappers
+//!
+//! ## [`Dynamic<S, T>`]
+//!
+//! The first approach that is modeled here is to explicitly
+//! wrap such elements in a dynamic context, which consists of
+//! a 1, 2, or 4[*] byte prefix, to be understood as an unsigned
+//! integer of the appropriate width, and whose value is precisely
+//! how many bytes immediately following said prefix, belong to
+//! the element enclosed in the dynamic wrapper.
+//!
+//! For this approach, the type `Dynamic<S, T>` is defined, which
+//! represents a value of generic type `T` that is to be encoded,
+//! and decoded, using a prefix of type `S: LenPref`, a public
+//! trait that is sealed, with implementations only for [`u8`],
+//! [`u16`], and [`u30`](../int/type.u30.html).
+//!
+//! ## [`VPadded<T, N>`]
+//!
+//! In the `data-encoding` binary schema, variable-length elements
+//! may be written and parsed without any preceding context that
+//! would explicate their length, provided the following conditions
+//! hold:
+//!   * They are an element contained within a larger context whose
+//!     total length can already be inferred
+//!   * The total length of all subsequent elements within the same
+//!     context is a known constant `N`
+//!
+//! To handle such cases, a wrapper type `VPadded<T, N>` is defined,
+//! which associates with the type `T` of the actual element appearing
+//! in that position, the constant `N` equal to the total length of the
+//! following elements.
+//!
+//! In terms of serialization via the [`Encode`] trait, `VPadded<T, N>`
+//! is identical to `T`.
+//!
+//! In terms of deserialization, `VPadded<T, N>` acts as a 'virtually padded'
+//! version of `T`: a novel context is spawned that covers all but
+//! the last `N` bytes of the current context, and the parsing of `T` is
+//! bound to the limited context. Provided that `T` parses successfully in
+//! this restricted view, this limit is removed so that the subsequent
+//! elements can parse the final `N` bytes of the original view.
 
-/// `Wrapper<T>`: Trait used to mark a shallow wrapper around a payload type,
-/// with means to infallibly coerce between the raw and wrapped form.
-pub trait Wrapper<T> {
-    /// Wraps a value of type `T` into a `Self` object.
-    fn wrap(val: T) -> Self;
-
-    /// Unwraps a value of type `T` from a `Self` object, consuming it.
-    fn unwrap(self) -> T;
-}
+use crate::conv::len::{Estimable, FixedLength};
+use crate::conv::{Decode, Encode, EncodeLength};
+use crate::int::u30;
+use crate::parse::{ParseResult, Parser};
+use std::convert::TryFrom;
+use std::fmt::{Debug, Display};
+use std::hash::Hash;
+use std::marker::PhantomData;
 
 /// `Dynamic<S, T>`: Schema-level construct for explicit dynamic length of variable-length types
 ///
@@ -32,23 +66,14 @@ pub trait Wrapper<T> {
 /// The generic parameter `S` must implement the trait `LenPref`, which is
 /// marked unsafe as it is a closed class containing only [`u8`], [`u16`],
 /// and [`u30`](crate::int::u30).
-///
-/// # Implementation Notes
-///
-/// The [`std::fmt::Debug`] implementation for this type is optimized for
-/// readability rather than specificity, and only indicates the dynamic
-/// length of the payload, not the byte-width of the prefix.
-///
-/// As this type is a shallow wrapper around a significant value `T`,
-/// the [`std::fmt::Display`] implementation merely calls the implementation
-/// via `<T as Display>`.
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+
+#[derive(Clone, Copy)]
 pub struct Dynamic<S: LenPref, T> {
     contents: T,
     _phantom: PhantomData<S>,
 }
 
-impl<S: LenPref, T> Wrapper<T> for Dynamic<S, T> {
+impl<S: LenPref, T> Dynamic<S, T> {
     /// Wraps a value of type `T` into a `Dynamic<S, T>` object.
     ///
     /// This is mostly useful when attempting to fit a variable-length value
@@ -60,7 +85,7 @@ impl<S: LenPref, T> Wrapper<T> for Dynamic<S, T> {
     /// where `M` is the maximum value in the range of `S`;
     /// this check is only done during the encoding step, and
     /// will result in a panic if this condition is violated.
-    fn wrap(contents: T) -> Self {
+    pub fn new(contents: T) -> Self {
         Self {
             contents,
             _phantom: PhantomData,
@@ -73,20 +98,99 @@ impl<S: LenPref, T> Wrapper<T> for Dynamic<S, T> {
     /// This is mostly useful when attempting to extract the payload
     /// values from a codec type that holds `Dynamic<S, T>`, after
     /// the codec type has been decoded.
-    fn unwrap(self) -> T {
+    pub fn into_inner(self) -> T {
         self.contents
+    }
+
+    /// Computes the length prefix of the contents of a `Dynamic<S, T>`, mapped
+    /// into the length-prefix type `S`.
+    ///
+    /// If the actual length exceeds the maximum representable value of `S`, a
+    /// `ConstraintError` is returned.
+    pub fn length_prefix(&self) -> Result<S, crate::error::ConstraintError>
+    where
+        T: EncodeLength,
+    {
+        let actual: usize = <T as EncodeLength>::enc_len(&self.contents);
+        let limit: usize = S::max_len();
+        if actual > limit {
+            Err(crate::error::ConstraintError::TooManyBytes { limit, actual })
+        } else {
+            Ok(unsafe { <usize as std::convert::TryInto<S>>::try_into(actual).unwrap_unchecked() })
+        }
+    }
+}
+
+pub mod impls {
+    use std::borrow::Borrow;
+
+    use super::*;
+
+    impl<S: LenPref, T> Ord for Dynamic<S, T>
+    where
+        T: Ord,
+    {
+        fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+            self.contents.cmp(&other.contents)
+        }
+    }
+
+    impl<S: LenPref, T> PartialOrd for Dynamic<S, T>
+    where
+        T: PartialOrd,
+    {
+        fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+            self.contents.partial_cmp(&other.contents)
+        }
+    }
+
+    impl<S: LenPref, T> PartialEq for Dynamic<S, T>
+    where
+        T: PartialEq,
+    {
+        fn eq(&self, other: &Self) -> bool {
+            self.contents.eq(&other.contents)
+        }
+    }
+
+    impl<S: LenPref, T> Eq for Dynamic<S, T> where T: Eq {}
+
+    impl<S: LenPref, T> Hash for Dynamic<S, T>
+    where
+        T: Hash,
+    {
+        fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+            self.contents.hash(state);
+        }
+    }
+
+    impl<S: LenPref, T> Borrow<T> for Dynamic<S, T> {
+        fn borrow(&self) -> &T {
+            &self.contents
+        }
+    }
+
+    impl<S: LenPref, T> AsRef<T> for Dynamic<S, T> {
+        fn as_ref(&self) -> &T {
+            &self.contents
+        }
+    }
+
+    impl<S: LenPref, T> AsMut<T> for Dynamic<S, T> {
+        fn as_mut(&mut self) -> &mut T {
+            &mut self.contents
+        }
     }
 }
 
 impl<S: LenPref, T: Estimable> Estimable for Dynamic<S, T> {
     const KNOWN: Option<usize> = {
-        const fn f(x: Option<usize>, y: Option<usize>) -> Option<usize> {
-            match (x, y) {
-                (Some(m), Some(n)) => Some(m + n),
-                _ => None,
-            }
+        let x = S::KNOWN;
+        let y = T::KNOWN;
+        match (x, y) {
+            (Some(m), Some(n)) => Some(m + n),
+            _ => None,
         }
-        f(S::KNOWN, T::KNOWN)
     };
 
     fn unknown(&self) -> usize {
@@ -94,29 +198,25 @@ impl<S: LenPref, T: Estimable> Estimable for Dynamic<S, T> {
     }
 }
 
-impl<S: LenPref, T: Debug + Estimable> Debug for Dynamic<S, T> {
+impl<S: LenPref, T: Debug + EncodeLength> Debug for Dynamic<S, T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
             "[{}{} bytes|{:?}]",
-            self.contents.estimate(),
+            self.contents.enc_len(),
             S::suffix(),
             self.contents
         )
     }
 }
 
+/// Display implementation for `Dynamic<S, T>`
+///
+/// Displays `Dynamic<S, T>` by-value using `T: Display`, without
+/// indicating that it is wrapped, or the type of the prefix.
 impl<S: LenPref, T: Display> Display for Dynamic<S, T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         Display::fmt(&self.contents, f)
-    }
-}
-
-impl<S: LenPref, T> Deref for Dynamic<S, T> {
-    type Target = T;
-
-    fn deref(&self) -> &Self::Target {
-        &self.contents
     }
 }
 
@@ -129,50 +229,114 @@ impl<S: LenPref, T> From<T> for Dynamic<S, T> {
     }
 }
 
-/// `LenPref`: marker trait for the closed set of types suitable for use
-/// as the dynamic length prefix type-parameter `S` of [`Dynamic<S,T>`](Dynamic).
+/// Marker trait for the suitability as dynamic length prefix
+///
+/// `LenPref` is a sealed trait used as a bound on the phantom parameter `S` of [`Dynamic<S,T>`].
 ///
 /// Specifically, the only valid implementors are [`u8`], [`u16`], and [`u30`](crate::int::u30).
 ///
 /// As this is a closed trait, it is made public for use as a valid trait-bound on the public type
-/// `Dynamic`, but is marked `unsafe` to prevent casual implementation on types other than these three.
+/// `Dynamic`, but is sealed via a private empty supertrait. It is therefore not possible for any external
+/// code to implement `LenPref`.
 ///
 /// In addition to being a marker, this trait also presents the necessary bounds shared by the three
 /// valid length-prefix types: infallible coercion to and fallible conversion from `usize`, `Copy`,
 /// [`Encode`](crate::conv::Encode) (via [`EncodeLength`](crate::conv::EncodeLength)), [`Decode`](crate::conv::Decode),
 /// and [`FixedLength`](crate::conv::len::FixedLength).
-pub unsafe trait LenPref
+pub trait LenPref
 where
-    Self: Into<usize> + TryFrom<usize> + Copy + EncodeLength + Decode + FixedLength,
+    Self:
+        Into<usize> + TryFrom<usize> + Copy + EncodeLength + Decode + FixedLength + private::Sealed,
 {
+    /// Returns a `uX`-style name for LenPref, as is common for writing
+    /// explicitly-typed integer literals
     fn suffix() -> &'static str {
         std::any::type_name::<Self>()
     }
+
+    /// Returns the maximum number of bytes of payload supported
+    /// by a particular `LenPref` type, as a `usize`
+    fn max_len() -> usize;
 }
 
-unsafe impl LenPref for u8 {}
-unsafe impl LenPref for u16 {}
-unsafe impl LenPref for u30 {
+mod private {
+    pub trait Sealed {}
+
+    impl Sealed for u8 {}
+    impl Sealed for u16 {}
+    impl Sealed for crate::u30 {}
+}
+
+impl LenPref for u8 {
+    /// Maximum byte-length representable within the range of a `u8`, as a `usize`
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use ::rust_runtime::dynamic::LenPref;
+    /// assert_eq!(<u8 as LenPref>::max_len(), (1usize << 8) - 1);
+    /// ```
+    fn max_len() -> usize {
+        u8::MAX as usize
+    }
+}
+
+impl LenPref for u16 {
+    /// Maximum byte-length representable within the range of a `u16`, as a `usize`
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use ::rust_runtime::dynamic::LenPref;
+    /// assert_eq!(<u16 as LenPref>::max_len(), (1usize << 16) - 1);
+    /// ```
+    fn max_len() -> usize {
+        u16::MAX as usize
+    }
+}
+impl LenPref for u30 {
     fn suffix() -> &'static str {
         "u30"
+    }
+
+    /// Maximum byte-length representable within the range of a `u30`, as a `usize`
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use ::rust_runtime::{dynamic::LenPref, int::u30};
+    /// assert_eq!(<u30 as LenPref>::max_len(), (1usize << 30) - 1);
+    /// ```
+    fn max_len() -> usize {
+        u30::MAX as usize
     }
 }
 
 impl<S: LenPref, T: EncodeLength> Encode for Dynamic<S, T> {
+    /// Writes the contents of type `T` of a `Dynamic<S, T>`,
+    /// prepending a prefix of type `S` indicating how many bytes
+    /// it occupies.
+    ///
+    /// # Panics
+    ///
+    /// This function panics if the serialization of `T` exceeds the
+    /// maximum representable value of type `S`, indicating that the
+    /// value of the type is unsound.
+    ///
     fn write_to<U: crate::conv::target::Target>(&self, buf: &mut U) -> usize {
         let l: usize = self.contents.enc_len();
+        assert!(
+            l <= S::max_len(),
+            "payload length {} unrepresentable as {}",
+            l,
+            S::suffix(),
+        );
         match S::try_from(l) {
             Ok(lp) => {
                 buf.anticipate(l + <S as EncodeLength>::enc_len(&lp));
                 crate::write_all_to!(lp, self.contents => buf)
             }
-            Err(_) => {
-                panic!(
-                    "Dynamic<{}, _>: Length prefix {} exceeds bounds of associated type",
-                    std::any::type_name::<S>(),
-                    l
-                );
-            }
+            Err(_) => unreachable!(),
         }
     }
 }
@@ -183,10 +347,7 @@ impl<S: LenPref, T: Decode> Decode for Dynamic<S, T> {
         p.set_fit(buflen.into())?;
         let contents = T::parse(p)?;
         p.enforce_target()?;
-        Ok(Dynamic {
-            contents,
-            _phantom: PhantomData,
-        })
+        Ok(Self::new(contents))
     }
 }
 
@@ -206,7 +367,7 @@ impl<S: LenPref, T: Decode> Decode for Dynamic<S, T> {
 /// It is technically valid to have a value of type `VPadded<_, 0>` just as it is valid to have a value
 /// of type `Padded<_, 0>`, though neither one is expected to appear in codecs as they are fundamentally
 /// indistinguishable from the payload type, and each other, for the purposes of encoding and decoding.
-#[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
+#[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash, Default)]
 pub struct VPadded<T, const N: usize>(T);
 
 impl<T: Debug, const N: usize> Debug for VPadded<T, N> {
@@ -215,13 +376,13 @@ impl<T: Debug, const N: usize> Debug for VPadded<T, N> {
     }
 }
 
-impl<T, const N: usize> Wrapper<T> for VPadded<T, N> {
+impl<T, const N: usize> VPadded<T, N> {
     /// Wraps a value of type `T` into a `VPadded<T, N>` object.
     ///
     /// This is mostly useful when attempting to fit raw values
     /// into a codec type that expects `VPadded<T, N>`, to be
     /// encoded.
-    fn wrap(val: T) -> Self {
+    pub fn new(val: T) -> Self {
         Self(val)
     }
 
@@ -231,16 +392,8 @@ impl<T, const N: usize> Wrapper<T> for VPadded<T, N> {
     /// This is mostly useful when attempting to extract the payload
     /// values from a codec type that holds `VPadded<T, N>`, after
     /// the codec type has been decoded.
-    fn unwrap(self) -> T {
+    pub fn into_inner(self) -> T {
         self.0
-    }
-}
-
-impl<T, const N: usize> Deref for VPadded<T, N> {
-    type Target = T;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
     }
 }
 
@@ -252,7 +405,7 @@ impl<T, const N: usize> From<T> for VPadded<T, N> {
 
 impl<T: Encode, const N: usize> Encode for VPadded<T, N> {
     fn write_to<U: crate::Target>(&self, buf: &mut U) -> usize {
-        self.0.write_to(buf) + crate::resolve_zero(buf)
+        self.0.write_to(buf) + buf.resolve_zero()
     }
 }
 

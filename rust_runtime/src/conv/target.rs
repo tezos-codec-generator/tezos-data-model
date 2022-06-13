@@ -1,4 +1,4 @@
-/// [`Target`]: Append-only serialization objects
+/// Append-only serialization objects
 ///
 /// `Target` is a custom trait providing methods for byte-level append operations
 /// to a mutably borrowed receiver object.
@@ -9,9 +9,10 @@
 /// they return a `usize` value representing the number of bytes written, this is
 /// used only for summary book-keeping on the caller side, rather than a feedback
 /// mechanism that may indicate failure or partial success, as is the case for `std::io::Write::write`.
-/// All implementors of `Target` must define these methods to be total.
+///
+/// All implementors of `Target` must define these methods as infallible and total.
 pub trait Target {
-    /// Perform any necessary operations that amortize the cost incurred by
+    /// Performs any necessary operations that amortize the cost incurred by
     /// writing a certain number of additional bytes to the end of the `Target`,
     /// over the course of an unknown number of push operations.
     ///
@@ -19,17 +20,21 @@ pub trait Target {
     /// with a notion of capacity, such as `Vec<u8>`, this would perform the appropriate
     /// function calls to amortize re-allocation costs by ensuring the capacity is increased
     /// as necessary to accomodate the specified number of extra bytes.
+    ///
+    /// When writing implementations of this method, note that it may be called With
+    /// only partial information as to how many bytes will be written, and additional
+    /// writes, as well as other calls to `anticipate`, should be expected to follow.
     fn anticipate(&mut self, extra: usize);
 
-    /// Return a fresh object of the `Self` type with an initially empty buffer.
+    /// Returns a fresh object of the `Self` type with an initially empty buffer.
     fn create() -> Self;
 
-    /// Append a single byte to a Target object.
+    /// Appends a single byte to a Target object.
     ///
     /// This method should never panic under normal conditions, and the return value must be `1`.
     fn push_one(&mut self, b: u8) -> usize;
 
-    /// Append the bytes in a known-length array to a Target object.
+    /// Appends the bytes in a known-length array to a Target object.
     ///
     /// The operational semantics of this method should be indistinguishable from repeated
     /// calls to `push_one` over every element of the array in order, intercalated with
@@ -42,27 +47,29 @@ pub trait Target {
     /// This method should never panic under normal conditions, and the return value must be `N`.
     fn push_many<const N: usize>(&mut self, arr: [u8; N]) -> usize;
 
-    /// Append the bytes in an arbitrary-length byte-slice to a Target object.
+    /// Appends the bytes in an arbitrary-length byte-slice to a Target object.
     ///
-    /// The operational semantics of this method should be indistinguishable from repeated
-    /// calls to `push_one` over every element of the slice in order, intercalated with
-    /// binary addition:
+    /// The operational semantics of this method should be indistinguishable
+    /// from repeated calls to `push_one` over every element of the slice in
+    /// order, intercalated with binary addition:
     ///
-    /// ```ignore
+    /// ```no_run
     /// x.push_all(&b"Rust") === x.push_one(b'R') + x.push_one(b'u') + x.push_one(b's') + x.push_one(b't')
     /// ```
     ///
-    /// Furthermore, when the slice represents a borrowed reference to an equivalent array in local scope,
-    /// the following should hold as well, both in value and effect:
+    /// Furthermore, when the slice represents a borrowed reference to an
+    /// equivalent array in local scope, the following should hold as well, both
+    /// in value and effect:
     ///
-    /// ```ignore
+    /// ```no_run
     /// x.push_all(&arr) === x.push_many(arr)
     /// ```
     ///
-    /// This method should never panic under normal conditions, and the return value must be the total length of the slice.
+    /// This method should never panic under normal conditions, and the return
+    /// value must be the total length of the slice.
     fn push_all(&mut self, buf: &[u8]) -> usize;
 
-    /// Perform any necessary internal stateful operations that 'book-end' a sequence of `push_XXX` operations
+    /// Performs any necessary internal stateful operations that 'book-end' a sequence of `push_XXX` operations
     /// to record and preserve the fact that they represent a logical unit.
     ///
     /// More specifically, this method should either be a no-op, or record some indication of the fact that it
@@ -75,42 +82,54 @@ pub trait Target {
     /// By definition, the effect of this function must not have influence on the actual contents of the buffer
     /// beyond internal division or segmentation, and so a default no-op implementation is provided, as few, if any,
     /// implementors will have need to override this.
+    #[inline]
     fn resolve(&mut self) {}
+
+    /// Perform the associated `Target::resolve` call on the argument expression and return `0usize`
+    ///
+    /// While this standalone function could instead be a method with a default implementation in `Target` itself,
+    /// this approach guarantees that compiler logic is independent of implementation details of `Target`,
+    /// as well as ensuring that `0` is invariably returned.
+    #[inline]
+    fn resolve_zero(&mut self) -> usize {
+        self.resolve();
+        0
+    }
 }
 
-/// Perform the associated `Target::resolve` call on the argument expression and return `0usize`
-///
-/// While this standalone function could instead be a method with a default implementation in `Target` itself,
-/// this approach guarantees that compiler logic is independent of implementation details of `Target`,
-/// as well as ensuring that `0` is invariably returned.
-pub fn resolve_zero(buf: &mut impl Target) -> usize {
-    buf.resolve();
-    0
+#[macro_export]
+macro_rules! resolve_zero {
+    ( $buf:expr ) => {{
+        $crate::conv::target::Target::resolve($buf);
+        0
+    }};
 }
 
+/// Useful alias for `std::io::Sink` that is used to count the number of
+/// bytes required to serialize an arbitrary-typed object, without
+/// performing any memory operations.
 pub type ByteCounter = std::io::Sink;
 
 impl Target for ByteCounter {
-    #[inline]
-    fn anticipate(self: &mut Self, _: usize) {
-        return;
-    }
+    #[inline(always)]
+    fn anticipate(self: &mut Self, _: usize) {}
 
+    #[inline]
     fn create() -> Self {
         std::io::sink()
     }
 
-    #[inline]
+    #[inline(always)]
     fn push_one(self: &mut Self, _: u8) -> usize {
         1
     }
 
-    #[inline]
+    #[inline(always)]
     fn push_many<const N: usize>(&mut self, _: [u8; N]) -> usize {
         N
     }
 
-    #[inline]
+    #[inline(always)]
     fn push_all(self: &mut Self, buf: &[u8]) -> usize {
         buf.len()
     }
@@ -122,6 +141,8 @@ impl Target for Vec<u8> {
         self.reserve(extra)
     }
 
+    #[inline]
+    #[must_use]
     fn create() -> Self {
         Self::new()
     }
@@ -132,6 +153,7 @@ impl Target for Vec<u8> {
         1
     }
 
+    #[inline]
     fn push_many<const N: usize>(&mut self, arr: [u8; N]) -> usize {
         self.extend(&arr);
         N

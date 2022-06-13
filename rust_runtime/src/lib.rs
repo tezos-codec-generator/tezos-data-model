@@ -49,9 +49,12 @@
 //!
 //! [`codec_generator`]: Originally a separate project known as `tezos-codec-compiler`
 
+extern crate decode_derive;
+extern crate encode_derive;
+extern crate estimable_derive;
+
 pub mod adt;
 pub mod autobox;
-mod bound;
 pub mod builder;
 pub mod conv;
 pub mod default;
@@ -59,6 +62,7 @@ pub mod dynamic;
 pub mod error;
 pub mod fixed;
 pub mod float;
+pub mod hexstring;
 pub mod int;
 mod internal;
 pub mod parse;
@@ -71,17 +75,22 @@ pub use crate::autobox::AutoBox;
 pub use crate::builder::{memo::MemoBuilder, strict::StrictBuilder, Builder};
 pub use crate::conv::{
     len::{Estimable, FixedLength, ScalarLength},
-    target::{resolve_zero, Target},
+    target::Target,
     Decode, Encode,
 };
 pub use crate::dynamic::{Dynamic, VPadded};
 pub use crate::fixed::{bytestring::ByteString, charstring::CharString};
 pub use crate::float::RangedFloat;
+pub use crate::hexstring::HexString;
 pub use crate::int::{i31, u30, RangedInt};
 pub use crate::parse::{
-    byteparser::ByteParser, error::ParseError, hexstring::HexString, memoparser::MemoParser,
-    sliceparser::SliceParser, ParseResult, Parser, ToParser,
+    byteparser::ByteParser, error::ParseError, memoparser::MemoParser, sliceparser::SliceParser,
+    ParseResult, Parser, TryIntoParser,
 };
-pub use crate::schema::{Bytes, FixSeq, LimSeq, Padded, Sequence, Nullable};
-pub use crate::zarith::{n::N, z::Z, Zarith};
+pub use crate::schema::{Bytes, FixSeq, LimSeq, Nullable, Padded, Sequence};
+pub use crate::zarith::{n::N, z::Z};
+
+pub use ::decode_derive::Decode;
+pub use ::encode_derive::Encode;
+pub use ::estimable_derive::Estimable;
 pub use ::lazy_static::lazy_static;

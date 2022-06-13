@@ -12,6 +12,9 @@ pub fn estimable_derive(input: TokenStream) -> TokenStream {
 }
 
 fn impl_estimable(ast: &syn::DeriveInput) -> TokenStream {
+    let fixed_len_trait = quote! { rust_runtime::conv::len::FixedLength };
+    let estimable_trait = quote! { rust_runtime::conv::len::Estimable };
+
     let name = &ast.ident;
     let gen = match &ast.data {
         syn::Data::Enum(_) => unimplemented!(),
@@ -19,7 +22,7 @@ fn impl_estimable(ast: &syn::DeriveInput) -> TokenStream {
         syn::Data::Struct(syn::DataStruct { fields, .. }) => match fields {
             syn::Fields::Unit => {
                 quote! {
-                    impl FixedLength for #name {
+                    impl #fixed_len_trait for #name {
                         const LEN : usize = 0;
                     }
                 }
@@ -28,7 +31,7 @@ fn impl_estimable(ast: &syn::DeriveInput) -> TokenStream {
                 match unnamed.len() {
                     0 => {
                         quote! {
-                            impl FixedLength for #name {
+                            impl #fixed_len_trait for #name {
                                 const LEN : usize = 0;
                             }
                         }
@@ -36,11 +39,11 @@ fn impl_estimable(ast: &syn::DeriveInput) -> TokenStream {
                     1 => {
                         let syn::Field { ty, ..} = unnamed.first().unwrap();
                         quote! {
-                            impl Estimable for #name {
-                                const KNOWN : Option<usize> = <#ty as Estimable>::KNOWN;
+                            impl #estimable_trait for #name {
+                                const KNOWN : Option<usize> = <#ty as #estimable_trait>::KNOWN;
 
                                 fn unknown(&self) -> usize {
-                                    self.0.unknown()
+                                    <#ty as #estimable_trait>::unknown(&self.0)
                                 }
                             }
                         }
@@ -50,7 +53,7 @@ fn impl_estimable(ast: &syn::DeriveInput) -> TokenStream {
                         let varname : Vec<syn::Ident> = (0..unnamed.len()).map(|x| format_ident!("pos{}", x)).collect();
                         let ty = unnamed.iter().map(|x| &x.ty);
                         quote! {
-                            impl Estimable for #name {
+                            impl #estimable_trait for #name {
                                 const KNOWN : Option<usize> = {
                                     const fn f( #( #varname : Option<usize> ),* ) -> Option<usize> {
                                         match ( #( #varname ),* ) {
@@ -58,10 +61,12 @@ fn impl_estimable(ast: &syn::DeriveInput) -> TokenStream {
                                             _ => None,
                                         }
                                     }
-                                    f( #( <#ty>::KNOWN ),* )
+                                    f( #( <#ty as #estimable_trait>::KNOWN ),* )
                                 };
 
                                 fn unknown(&self) -> usize {
+                                    #[cfg(not(Estimable))] use #estimable_trait;
+
                                     #( self.#i.unknown() )+*
                                 }
                             }
@@ -73,7 +78,7 @@ fn impl_estimable(ast: &syn::DeriveInput) -> TokenStream {
                 match named.len() {
                     0 => {
                         quote! {
-                            impl FixedLength for #name {
+                            impl #fixed_len_trait for #name {
                                 const LEN : usize = 0;
                             }
                         }
@@ -81,7 +86,7 @@ fn impl_estimable(ast: &syn::DeriveInput) -> TokenStream {
                     _ => {
                         let (fname, ty) : (Vec<&syn::Ident>, Vec<&syn::Type>) = named.iter().map(|x| (x.ident.as_ref().unwrap(), &x.ty)).unzip();
                         quote! {
-                            impl Estimable for #name {
+                            impl #estimable_trait for #name {
                                 const KNOWN : Option<usize> = {
                                     const fn f( #( #fname : Option<usize> ),* ) -> Option<usize> {
                                         match ( #( #fname ),* ) {
@@ -89,10 +94,12 @@ fn impl_estimable(ast: &syn::DeriveInput) -> TokenStream {
                                             _ => None,
                                         }
                                     }
-                                    f( #( <#ty>::KNOWN ),* )
+                                    f( #( <#ty as #estimable_trait>::KNOWN ),* )
                                 };
 
                                 fn unknown(&self) -> usize {
+                                    #[cfg(not(Estimable))] use #estimable_trait;
+
                                     #( self.#fname.unknown() )+*
                                 }
                             }

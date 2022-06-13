@@ -1,9 +1,11 @@
-extern crate bitvec;
 extern crate num_bigint;
-extern crate rug;
+extern crate num_integer;
 
-pub trait Zarith {
-    fn deserialize(bytes: &[u8]) -> Self;
+trait Zarith {
+    #[must_use]
+    fn deserialize(bytes: impl IntoIterator<Item = u8>) -> Self;
+
+    #[must_use]
     fn serialize(&self) -> Vec<u8>;
 }
 
@@ -11,15 +13,16 @@ macro_rules! impl_zarith {
     ($x:ident) => {
         impl $crate::Encode for $x {
             fn write_to<U: $crate::conv::target::Target>(&self, buf: &mut U) -> usize {
-                buf.push_all(&mut <$x as $crate::zarith::Zarith>::serialize(self))
-                    + $crate::resolve_zero(buf)
+                buf.push_all(&<$x as $crate::zarith::Zarith>::serialize(
+                    self,
+                )) + $crate::conv::target::Target::resolve_zero(buf)
             }
         }
 
         impl $crate::Decode for $x {
             fn parse<P: $crate::Parser>(p: &mut P) -> $crate::ParseResult<Self> {
                 Ok(<$x as $crate::zarith::Zarith>::deserialize(
-                    &p.get_self_terminating(|byte| byte & 0x80 == 0)?,
+                    p.take_self_terminating(|byte| byte & 0x80 == 0)?,
                 ))
             }
         }
@@ -29,10 +32,10 @@ macro_rules! impl_zarith {
 pub mod n {
     use std::{convert::TryFrom, fmt::Display, ops::Deref};
 
-    use num_bigint::BigUint;
-    use rug::ops::DivRounding;
+    use ::num_bigint::BigUint;
+    use ::num_integer::Integer;
 
-    #[derive(PartialEq, Eq, PartialOrd, Ord, Clone)]
+    #[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Hash, Default)]
     pub struct N(pub BigUint);
 
     impl std::fmt::Debug for N {
@@ -83,13 +86,13 @@ pub mod n {
 
         fn unknown(&self) -> usize {
             let n: usize = self.0.bits() as usize;
-            n.div_ceil(7)
+            Integer::div_ceil(&n, &7)
         }
     }
 
-    impl crate::zarith::Zarith for N {
-        fn deserialize(bytes: &[u8]) -> Self {
-            let lo7: Vec<u8> = bytes.iter().map(|&b| b & 0x7f).collect();
+    impl super::Zarith for N {
+        fn deserialize(bytes: impl IntoIterator<Item = u8>) -> Self {
+            let lo7: Vec<u8> = bytes.into_iter().map(|b| b & 0x7f).collect();
             match BigUint::from_radix_le(&lo7, 0x80) {
                 Some(nat) => Self(nat),
                 None => panic!("from_bytes: conversion failed!"),
@@ -98,14 +101,14 @@ pub mod n {
 
         fn serialize(&self) -> Vec<u8> {
             let mut ret = self.0.to_radix_le(0x80);
-            let final_ix: usize = ret.len() - 1;
 
-            // we unwrap the loop logic of setting the high bit of every byte
-            // but the last, by pre-setting the high bit of the last byte and
-            // toggling it over every byte in the buffer
-            unsafe {
-                let lastbyt = ret.get_unchecked_mut(final_ix);
-                *lastbyt ^= 0x80;
+            // We simplify the loop logic below in which the high bit of every
+            // byte but the last is set, by pre-emptively setting the high
+            // bit of the final byte, and unconditionally toggling the high
+            // bit in every loop iteration.
+            match ret.last_mut() {
+                Some(last) => *last ^= 0x80,
+                None => unreachable!(),
             }
 
             for byt in ret.iter_mut() {
@@ -127,21 +130,21 @@ pub mod n {
 
         #[test]
         fn nat_conv() {
-            assert_eq!(NAT(0), N::deserialize(&[0x00u8]));
-            assert_eq!(NAT(1), N::deserialize(&[0x01u8]));
-            assert_eq!(NAT(128), N::deserialize(&[0x80, 0x01]));
+            assert_eq!(NAT(0), N::deserialize([0x00u8]));
+            assert_eq!(NAT(1), N::deserialize([0x01u8]));
+            assert_eq!(NAT(128), N::deserialize([0x80, 0x01]));
         }
     }
 }
 
 pub mod z {
-    use crate::zarith::Zarith;
+    use super::Zarith;
     use std::{convert::TryFrom, fmt::Display, ops::Deref};
 
-    use num_bigint::{BigInt, BigUint, Sign};
-    use rug::ops::DivRounding;
+    use ::num_bigint::{BigInt, BigUint, Sign};
+    use ::num_integer::Integer;
 
-    #[derive(PartialEq, Eq, PartialOrd, Ord, Clone)]
+    #[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Hash, Default)]
     pub struct Z(pub BigInt);
 
     impl std::fmt::Debug for Z {
@@ -197,16 +200,18 @@ pub mod z {
             let n: usize = self.0.bits() as usize;
             match n {
                 0..=6 => 1,
-                n => 1 + (n - 6).div_ceil(7),
+                n => 1 + Integer::div_ceil(&(n - 6), &7),
             }
         }
     }
 
     impl Zarith for Z {
-        fn deserialize(bytes: &[u8]) -> Self {
-            let mut b_iter = bytes.iter();
+        fn deserialize(bytes: impl IntoIterator<Item = u8>) -> Self {
+            let mut b_iter = bytes.into_iter();
 
-            let &first = b_iter.next().unwrap();
+            let first = b_iter
+                .next()
+                .expect("Zarith::Z deserialization failed on empty input");
 
             let sg = match first & 0x40u8 {
                 0 => Sign::Plus,
@@ -215,7 +220,7 @@ pub mod z {
 
             let bot6 = first & 0x3fu8;
 
-            let lo7: Vec<u8> = b_iter.map(|&b| b & 0x7f).collect();
+            let lo7: Vec<u8> = b_iter.map(|b| b & 0x7f).collect();
 
             match BigUint::from_radix_le(&lo7, 0x80) {
                 Some(mut i) => {

@@ -1,24 +1,32 @@
-//! `conv`: core functionality of the binary-conversion API
+//! Core of the binary-conversion API
 //!
 //! This module provides the primary functionality of the runtime, the trait definitions
-//! for `Encode` and `Decode`. These traits are the principal motivation for the existence
-//! of a standalone runtime to begin with, and their API is by far the most important to respect
-//! when substituting a variant runtime in the place of the implementations provided in this crate.
+//! for `Encode` and `Decode`, which are motivationally equivalent to the `Serialize` and `Deserialize`
+//! traits defined in `serde`, for example.
+//!
+//! While a great deal of the underlying machinery of this crate is subject to customization
+//! by end-users, such as the definition of custom `Parser` and `Target` trait implementors,
+//! `Encode` and `Decode` form the core of this library, and substituting them wholesale would
+//! be morally equivalent to using a different runtime library.
 //!
 //! While the internal implementations may change, this module exposes a comparatively stable API,
-//! as the structures of Encode and Decode cannot be altered without drastic changes not only to the
-//! remainder of the `runtime` crate itself, but also to the generator logic and even the domain-specific
-//! AST in the `codec_generator` OCaml project code.
+//! as the structures of `Encode` and `Decode` cannot be altered without drastic changes not only to the
+//! remainder of the library itself, but also the abstract model, and generative logic used in the
+//! `codec_generator` that this library is designed in tandem with.
 //!
-//! The sub-module [`len`](./conv.len.html), which defines `Estimable` and its refinements, is also
+//! The sub-module [`len`], which defines `Estimable` and its refinements, is also
 //! a major feature of the runtime, but to a far lesser extent; it is possible to eliminate Estimable
 //! entirely and code around it in certain places without much side-effect, while Encode and Decode
 //! cannot be easily deprecated or phased out.
 //!
+//! An additional submodule, [`target`], offers an abstraction around [`std::io::Write`], namely the
+//! [`target::Target`] trait. This is the dual to [`crate::parse::Parser`], acting as the generic
+//! bound for serialization in the [`Decode::write_to`] method among others.
+//!
 //! Derive macros for Encode, Decode, and even Estimable are provided in the sub-crates `encode_derive`,
 //! `decode_derive`, and `estimable_derive`, which are only relevant within the context of this runtime.
 
-use crate::parse::{ParseResult, Parser, ToParser};
+use crate::parse::{ParseResult, Parser, TryIntoParser};
 
 use self::target::Target;
 
@@ -28,10 +36,11 @@ pub mod target;
 #[macro_export]
 macro_rules! write_all_to {
     ( $($x:expr),* $(,)? => $tgt:expr ) => {
-        { $( $x.write_to($tgt) + )* $crate::conv::target::resolve_zero($tgt) }
+        { $( $x.write_to($tgt) + )* $crate::conv::target::Target::resolve_zero($tgt) }
     };
 }
 
+///
 /// Trait that marks a type as having a known binary encoding scheme in the `data-encoding` OCaml library,
 /// and provides methods for serializing values of that type to various destination objects.
 ///
@@ -51,7 +60,6 @@ pub trait Encode {
     /// Variant of [`write_to`] that is specialized to `Vec<u8>`.
     fn write_to_vec(&self, buf: &mut Vec<u8>) {
         let _ = self.write_to(buf);
-        return;
     }
 
     fn encode<U: Target>(&self) -> U {
@@ -78,6 +86,7 @@ pub trait EncodeLength: Encode {
 }
 
 impl<T: Encode + len::Estimable + ?Sized> EncodeLength for T {
+    #[cfg(feature = "enc_len_estimable_override")]
     fn enc_len(&self) -> usize {
         self.estimate()
     }
@@ -92,16 +101,16 @@ pub trait Decode {
     where
         Self: Sized,
         P: Parser,
-        U: ToParser<P>,
+        U: TryIntoParser<P>,
     {
-        let mut p = inp.into_parser();
+        let mut p = inp.try_into_parser()?;
         Self::parse(&mut p)
     }
 
     fn decode_memo<U>(inp: U) -> Self
     where
         Self: Sized,
-        U: ToParser<crate::parse::memoparser::MemoParser>,
+        U: TryIntoParser<crate::parse::memoparser::MemoParser>,
     {
         Self::try_decode(inp).expect(&format!(
             "<{} as Decode>::decode_memo: unable to parse value (ParseError encountered)",
@@ -112,42 +121,45 @@ pub trait Decode {
     fn decode<U>(inp: U) -> Self
     where
         Self: Sized,
-        U: ToParser,
+        U: TryIntoParser,
     {
-        Self::try_decode(inp).expect(&format!(
-            "<{} as Decode>::decode: unable to parse value (ParseError encountered)",
-            std::any::type_name::<Self>()
-        ))
+        Self::try_decode(inp).unwrap_or_else(|err| {
+            panic!(
+                "<{} as Decode>::decode encountered error: {:?}",
+                std::any::type_name::<Self>(),
+                err
+            )
+        })
     }
 }
 
 impl Encode for Vec<u8> {
     fn write_to<U: Target>(&self, buf: &mut U) -> usize {
-        buf.push_all(&self) + crate::resolve_zero(buf)
+        buf.push_all(self) + crate::resolve_zero!(buf)
     }
 }
 
 impl Decode for Vec<u8> {
     fn parse<P: Parser>(p: &mut P) -> ParseResult<Self> {
-        p.get_dynamic(p.len() - p.offset())
+        p.take_dynamic(p.remainder())
     }
 }
 
 impl Encode for &str {
     fn write_to<U: Target>(&self, buf: &mut U) -> usize {
-        buf.push_all(self.as_bytes()) + crate::resolve_zero(buf)
+        buf.push_all(self.as_bytes()) + crate::resolve_zero!(buf)
     }
 }
 
 impl Encode for String {
     fn write_to<W: Target>(&self, buf: &mut W) -> usize {
-        buf.push_all(self.as_bytes()) + crate::resolve_zero(buf)
+        buf.push_all(self.as_bytes()) + crate::resolve_zero!(buf)
     }
 }
 
 impl Decode for String {
     fn parse<P: Parser>(p: &mut P) -> ParseResult<Self> {
-        let buf: Vec<u8> = p.get_dynamic(p.len() - p.offset())?;
+        let buf: Vec<u8> = p.take_dynamic(p.view_len() - p.offset())?;
 
         Ok(String::from_utf8(buf)?)
     }
@@ -158,13 +170,13 @@ impl<T: Encode> Encode for Option<T> {
         (match self {
             Some(val) => buf.push_one(0xff) + val.write_to(buf),
             None => buf.push_one(0x00),
-        }) + crate::resolve_zero(buf)
+        }) + crate::resolve_zero!(buf)
     }
 }
 
 impl<T: Decode> Decode for Option<T> {
     fn parse<P: Parser>(p: &mut P) -> ParseResult<Self> {
-        match p.get_tagword::<Option<T>, u8>(&[0x00, 0xff])? {
+        match p.take_tagword::<Option<T>, u8>(&[0x00, 0xff])? {
             0xff => Ok(Some(T::parse(p)?)),
             0x00 => Ok(None),
             _ => unreachable!(),
@@ -178,13 +190,6 @@ mod test {
 
     #[test]
     fn check() {
-        assert_eq!(
-            "foo"
-                .encode::<StrictBuilder>()
-                .finalize()
-                .into_bin()
-                .unwrap(),
-            "foo"
-        );
+        assert_eq!("foo".encode::<StrictBuilder>().into_bin().unwrap(), "foo");
     }
 }
