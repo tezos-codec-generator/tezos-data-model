@@ -256,24 +256,29 @@ pub trait Parser {
         }
     }
 
-    /// Consumes a tag of the specified unsigned integral type `U` (`u8`, `u16`, or `u32`)
-    /// and
-    fn take_tagword<T, U>(&mut self, valid: &[U]) -> ParseResult<U>
+    /// Parses a `u8`, `u16`, or `u32` (determined by the second generic parameter `U`),
+    /// validating it against the slice `valid` containing all legal tag-values for
+    /// the discriminated type `T`.
+    ///
+    /// All implementations must uphold the contract that the only possible return values
+    /// are `Err(_)`, and `Ok(val)` for some `val` in `valid`.
+    fn take_tagword<T, U, V>(&mut self, validator: V) -> ParseResult<U>
     where
         U: error::TagType + crate::conv::Decode,
         Self: Sized,
+        V: error::TagValidator<U>,
     {
-        if valid.is_empty() {
+        if validator.has_valid() {
             return Err(ParseError::InternalError(InternalError::NoValidTags));
         }
         let actual: U = crate::conv::Decode::parse(self)?;
-        if valid.contains(&actual) {
+        if validator.validate(actual) {
             Ok(actual)
         } else {
             Err(<U as error::TagType>::promote(TagError::new(
                 actual,
-                Some(std::any::type_name::<T>().to_owned()),
-                Some(valid.to_vec()),
+                std::any::type_name::<T>(),
+                Some(validator.into_valid())
             )))
         }
     }

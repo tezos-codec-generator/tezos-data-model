@@ -14,6 +14,7 @@ bench = false
 check_parser_on_drop = []
 panic_on_incomplete_parse = ["check_parser_on_drop"]
 arrayvec_fixseq = ["arrayvec"]
+arrayvec_limseq = ["arrayvec"]
 enc_len_estimable_override = []
 invalid_range_checking = []
 implicit_hexstring = []

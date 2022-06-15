@@ -458,6 +458,117 @@ impl TagType for u32 {
     }
 }
 
+pub trait TagValidator<U>
+where
+    U: TagType,
+{
+    fn validate(&self, raw: U) -> bool;
+
+    fn has_valid(&self) -> bool;
+
+    fn into_valid(self) -> Vec<U>;
+}
+
+pub mod impls {
+    use super::TagValidator;
+
+    #[inline]
+    #[must_use]
+    pub fn contains_u8(needle: u8, haystack: &[u8]) -> bool {
+        haystack.contains(&needle)
+    }
+    #[inline]
+    #[must_use]
+    pub fn contains_u16(needle: u16, haystack: &[u16]) -> bool {
+        haystack.contains(&needle)
+    }
+    #[inline]
+    #[must_use]
+    pub fn contains_u32(needle: u32, haystack: &[u32]) -> bool {
+        haystack.contains(&needle)
+    }
+
+    macro_rules! impl_container_tagvalidator {
+        ( $tagtyp:ty, $contains:ident ) => {
+            impl<const N: usize> TagValidator<$tagtyp> for [$tagtyp; N] {
+                fn validate(&self, raw: $tagtyp) -> bool {
+                    $contains(raw, &*self)
+                }
+
+                fn has_valid(&self) -> bool {
+                    N > 0
+                }
+
+                fn into_valid(self) -> Vec<$tagtyp> {
+                    self.to_vec()
+                }
+            }
+
+            impl<const N: usize> TagValidator<$tagtyp> for &'_ [$tagtyp; N] {
+                fn validate(&self, raw: $tagtyp) -> bool {
+                    $contains(raw, *self)
+                }
+
+                fn has_valid(&self) -> bool {
+                    N > 0
+                }
+
+                fn into_valid(self) -> Vec<$tagtyp> {
+                    self.to_vec()
+                }
+            }
+
+
+            impl TagValidator<$tagtyp> for &'_ [$tagtyp] {
+                fn validate(&self, raw: $tagtyp) -> bool {
+                    $contains(raw, self)
+                }
+
+                fn has_valid(&self) -> bool {
+                    self.len() > 0
+                }
+
+                fn into_valid(self) -> Vec<$tagtyp> {
+                    self.to_vec()
+                }
+            }
+
+            impl TagValidator<$tagtyp> for Vec<$tagtyp> {
+                fn validate(&self, raw: $tagtyp) -> bool {
+                    $contains(raw, self.as_slice())
+                }
+
+                fn has_valid(&self) -> bool {
+                    self.len() > 0
+                }
+
+                fn into_valid(self) -> Vec<$tagtyp> {
+                    self
+                }
+            }
+
+            impl TagValidator<$tagtyp> for &'_ Vec<$tagtyp> {
+                fn validate(&self, raw: $tagtyp) -> bool {
+                    $contains(raw, self.as_slice())
+                }
+
+                fn has_valid(&self) -> bool {
+                    self.len() > 0
+                }
+
+                fn into_valid(self) -> Vec<$tagtyp> {
+                    self.clone()
+                }
+            }
+        };
+    }
+
+    impl_container_tagvalidator!(u8, contains_u8);
+    impl_container_tagvalidator!(u16, contains_u16);
+    impl_container_tagvalidator!(u32, contains_u32);
+
+}
+
 mod private {
     pub trait Sealed {}
 
@@ -477,7 +588,7 @@ mod private {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TagError<T: TagType> {
     actual: T,
-    for_type: Option<String>,
+    for_type: &'static str,
     expected: Option<Vec<T>>,
 }
 
@@ -491,7 +602,7 @@ impl<T> TagError<T>
 where
     T: Into<TagError<T>> + TagType,
 {
-    pub fn new(actual: T, for_type: Option<String>, expected: Option<Vec<T>>) -> Self {
+    pub fn new(actual: T, for_type: &'static str, expected: Option<Vec<T>>) -> Self {
         Self {
             actual,
             for_type,
@@ -504,7 +615,7 @@ impl<T: TagType> From<T> for TagError<T> {
     fn from(actual: T) -> Self {
         Self {
             actual,
-            for_type: None,
+            for_type: "<unknown>",
             expected: None,
         }
     }
@@ -519,7 +630,7 @@ where
             f,
             "unexpected discriminant {:#0width$x} for enum-type {}",
             &self.actual,
-            self.for_type.as_ref().unwrap_or(&String::from("<unknown>")),
+            self.for_type,
             width = std::mem::size_of::<T>() * 2
         )
     }

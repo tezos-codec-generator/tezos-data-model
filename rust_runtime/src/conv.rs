@@ -139,17 +139,25 @@ impl Encode for Vec<u8> {
     fn write_to<U: Target>(&self, buf: &mut U) -> usize {
         buf.push_all(self) + crate::resolve_zero!(buf)
     }
+
+    fn write_to_vec(&self, buf: &mut Vec<u8>) {
+        buf.extend_from_slice(&self[..])
+    }
+
+    fn encode<U: Target>(&self) -> U {
+        let mut tgt: U = U::create();
+        write_all_to!(self => &mut tgt);
+        tgt
+    }
+
+    fn to_bytes(&self) -> Vec<u8> {
+        self.clone()
+    }
 }
 
 impl Decode for Vec<u8> {
     fn parse<P: Parser>(p: &mut P) -> ParseResult<Self> {
         p.take_dynamic(p.remainder())
-    }
-}
-
-impl Encode for &str {
-    fn write_to<U: Target>(&self, buf: &mut U) -> usize {
-        buf.push_all(self.as_bytes()) + crate::resolve_zero!(buf)
     }
 }
 
@@ -161,7 +169,7 @@ impl Encode for String {
 
 impl Decode for String {
     fn parse<P: Parser>(p: &mut P) -> ParseResult<Self> {
-        let buf: Vec<u8> = p.take_dynamic(p.view_len() - p.offset())?;
+        let buf: Vec<u8> = p.take_dynamic(p.remainder())?;
 
         Ok(String::from_utf8(buf)?)
     }
@@ -178,7 +186,7 @@ impl<T: Encode> Encode for Option<T> {
 
 impl<T: Decode> Decode for Option<T> {
     fn parse<P: Parser>(p: &mut P) -> ParseResult<Self> {
-        match p.take_tagword::<Option<T>, u8>(&[0x00, 0xff])? {
+        match p.take_tagword::<Option<T>, _, _>([0x00u8, 0xff])? {
             0xff => Ok(Some(T::parse(p)?)),
             0x00 => Ok(None),
             _ => unreachable!(),
@@ -192,6 +200,6 @@ mod test {
 
     #[test]
     fn check() {
-        assert_eq!("foo".encode::<StrictBuilder>().into_bin().unwrap(), "foo");
+        assert_eq!((b"foo").to_vec().encode::<StrictBuilder>().into_bin().unwrap(), "foo");
     }
 }

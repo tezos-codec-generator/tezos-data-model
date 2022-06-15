@@ -53,7 +53,7 @@ macro_rules! cstyle {
 
         impl $crate::Decode for $name {
             fn parse<P: $crate::Parser>(p: &mut P) -> $crate::ParseResult<$name> {
-                match p.take_tagword::<$name, $backer>(&vec![ $($vdisc as $backer),+ ])? {
+                match p.take_tagword::<$name, $backer, _>([ $($vdisc as $backer),+ ])? {
                     $(
                         $vdisc => Ok($name::$vname),
                     )+
@@ -278,7 +278,7 @@ macro_rules! data {
 
         impl $crate::Decode for $name {
             fn parse<P: $crate::Parser>(p: &mut P) -> $crate::ParseResult<$name> {
-                match p.take_tagword::<$name, $backer>(&vec![ $( $disc as $backer ),+ ])? {
+                match p.take_tagword::<$name, $backer, _>([ $( $disc as $backer ),+ ])? {
                     $(
                         $disc => {
                             Ok($name::$vname(<$payload::$vname>::parse(p)?))

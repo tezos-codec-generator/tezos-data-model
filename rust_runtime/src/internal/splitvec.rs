@@ -112,13 +112,10 @@ mod spanbuffer {
         /// Calling this function will have no effect if the
         #[inline]
         pub fn flush(&mut self) {
-            match self.active.take() {
-                Some(last) => {
-                    self.stable.push(last);
-                    self._cache += last;
-                }
-                None => (),
-            };
+            if let Some(last) = self.active.take() {
+                self.stable.push(last);
+                self._cache += last;
+            }
         }
 
         /// Finalize  `force_flush`: variant of the [`flush`] function that
