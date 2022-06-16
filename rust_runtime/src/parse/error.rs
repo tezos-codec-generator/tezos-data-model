@@ -458,14 +458,49 @@ impl TagType for u32 {
     }
 }
 
+/// General-purpose trait for abstracting tag-value validation
+///
+/// This is used to allow for a more flexible API for the
+/// `Parser` method [`take_tagword`](crate::parse::Parser::take_tagword).
+///
+/// This trait encapsulates the common behavior of determining whether
+/// a given value of type `U` is a member of the closed set of valid
+/// discriminants for an arbitrary schema ADT. This includes both
+/// C-Style and Data-enums.
+///
+/// The primary implementors of this trait are array-like collections
+/// over all valid discriminant values, either as constant-length
+/// arrays, slices, or vectors.
+///
+/// As needed, additional implementations may be added for more varied
+/// validators, such as collection types with better-than-`O(n)`
+/// membership operations.
 pub trait TagValidator<U>
 where
     U: TagType,
 {
-    fn validate(&self, raw: U) -> bool;
+    /// Returns `true` if and only if `raw` is a valid tag.
+    fn is_valid(&self, raw: U) -> bool;
 
+    /// Returns `true` if and only if there are no valid tags.
+    ///
+    /// Note that this is never the desired state for a `TagValidator`
+    /// to be in, and is used primarily for accurate error-reporting
+    /// upon rejection of a candidate value during parsing.
     fn has_valid(&self) -> bool;
 
+    /// Consumes `self` and returns a vector containing all of the
+    /// values that are considered valid.
+    ///
+    /// This method is called only to provide more informative error
+    /// values upon rejection of a parsed candidate tag-value. As a
+    /// result, it is not performance-critical, and is not even required
+    /// to succeed, as long as it does not panic.
+    ///
+    /// A common transparent way to indicate the impossibility of this
+    /// request, such as when the implementor is a closure type, or
+    /// similarly does not offer any direct means of introspecting the
+    /// tags it would consider valid, would be to return an empty vector.
     fn into_valid(self) -> Vec<U>;
 }
 
@@ -491,7 +526,7 @@ pub mod impls {
     macro_rules! impl_container_tagvalidator {
         ( $tagtyp:ty, $contains:ident ) => {
             impl<const N: usize> TagValidator<$tagtyp> for [$tagtyp; N] {
-                fn validate(&self, raw: $tagtyp) -> bool {
+                fn is_valid(&self, raw: $tagtyp) -> bool {
                     $contains(raw, &*self)
                 }
 
@@ -505,7 +540,7 @@ pub mod impls {
             }
 
             impl<const N: usize> TagValidator<$tagtyp> for &'_ [$tagtyp; N] {
-                fn validate(&self, raw: $tagtyp) -> bool {
+                fn is_valid(&self, raw: $tagtyp) -> bool {
                     $contains(raw, *self)
                 }
 
@@ -518,9 +553,8 @@ pub mod impls {
                 }
             }
 
-
             impl TagValidator<$tagtyp> for &'_ [$tagtyp] {
-                fn validate(&self, raw: $tagtyp) -> bool {
+                fn is_valid(&self, raw: $tagtyp) -> bool {
                     $contains(raw, self)
                 }
 
@@ -534,7 +568,7 @@ pub mod impls {
             }
 
             impl TagValidator<$tagtyp> for Vec<$tagtyp> {
-                fn validate(&self, raw: $tagtyp) -> bool {
+                fn is_valid(&self, raw: $tagtyp) -> bool {
                     $contains(raw, self.as_slice())
                 }
 
@@ -548,7 +582,7 @@ pub mod impls {
             }
 
             impl TagValidator<$tagtyp> for &'_ Vec<$tagtyp> {
-                fn validate(&self, raw: $tagtyp) -> bool {
+                fn is_valid(&self, raw: $tagtyp) -> bool {
                     $contains(raw, self.as_slice())
                 }
 
@@ -566,7 +600,6 @@ pub mod impls {
     impl_container_tagvalidator!(u8, contains_u8);
     impl_container_tagvalidator!(u16, contains_u16);
     impl_container_tagvalidator!(u32, contains_u32);
-
 }
 
 mod private {

@@ -19,6 +19,7 @@
 pub(crate) mod offset;
 pub(crate) mod splitvec;
 pub(crate) mod stack;
+pub(crate) mod view;
 
 pub(crate) use splitvec::SplitVec;
 pub(crate) use stack::Stack;

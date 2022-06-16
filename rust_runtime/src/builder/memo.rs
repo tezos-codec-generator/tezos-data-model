@@ -13,7 +13,7 @@
 //! manual inspection, as it may be difficult to determine what bytes in a
 //! serialized bytestring belong to what segment of a complex codec type.
 
-use std::{ops::{Add, AddAssign}, fmt::Write};
+use std::fmt::Write;
 
 use crate::{conv::target::Target, internal::SplitVec, util::write_all_hex};
 
@@ -72,22 +72,6 @@ impl From<Vec<u8>> for MemoBuilder {
 impl From<&[u8]> for MemoBuilder {
     fn from(buf: &[u8]) -> MemoBuilder {
         Self::from(<&[u8] as Into<Vec<u8>>>::into(buf))
-    }
-}
-
-impl Add<Self> for MemoBuilder {
-    type Output = Self;
-
-    fn add(self, mut rhs: Self) -> Self::Output {
-        let mut buf = self.segs;
-        buf.concat(&mut rhs.segs);
-        Self { segs: buf }
-    }
-}
-
-impl AddAssign<Self> for MemoBuilder {
-    fn add_assign(&mut self, mut rhs: Self) {
-        self.segs.concat(&mut rhs.segs);
     }
 }
 
@@ -175,6 +159,7 @@ impl Target for MemoBuilder {
         self.segs.buffer.reserve(n)
     }
 
+    /// Constructs a new, empty `MemoBuilder`
     #[inline]
     fn create() -> Self {
         Self {

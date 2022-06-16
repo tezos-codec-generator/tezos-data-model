@@ -32,10 +32,9 @@
 //! in future, in which case they will be added to the above list.
 
 
-use std::{string::FromUtf8Error};
+use std::string::FromUtf8Error;
 use crate::conv::target::Target;
 use crate::util::hex_of_bytes;
-use std::ops::{Add, AddAssign};
 
 /// `Target` extension trait with monoidal concatenation
 ///
@@ -61,7 +60,7 @@ use std::ops::{Add, AddAssign};
 /// may have a completely different structural layout or metadata.
 pub trait Builder
 where
-    Self: Add<Self, Output = Self> + AddAssign<Self> + Sized + From<Vec<u8>> + Target,
+    Self: Target + Sized,
 {
     /// Basic type of fractional components of a `Builder` object
     type Segment;

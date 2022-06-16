@@ -5,19 +5,15 @@
 //! as it was not implemented efficiently enough to justify its
 //! continued inclusion.
 
-use std::{
-    borrow::Borrow,
-    ops::{Add, AddAssign},
-};
+use std::borrow::Borrow;
 
 use crate::conv::target::Target;
 
-/// Newtype around `Vec<u8>` that implements the required
-/// trait bounds for `Builder`
+/// Newtype around `Vec<u8>` to use as Builder
 ///
-/// Most of the methods on `StrictBuilder` are implemented
-/// directly on the underlying `Vec<u8>` and may not be
-/// explicitly documented due to how trivial they are.
+/// Unless otherwise indicated,  Most of the methods on `StrictBuilder` are implemented directly on the
+/// underlying `Vec<u8>` and may not be explicitly documented due to how trivial
+/// they are.
 #[derive(PartialEq, Eq, PartialOrd, Ord, Clone)]
 #[repr(transparent)]
 pub struct StrictBuilder(Vec<u8>);
@@ -43,22 +39,6 @@ impl From<Vec<u8>> for StrictBuilder {
 impl From<&[u8]> for StrictBuilder {
     fn from(buf: &[u8]) -> StrictBuilder {
         StrictBuilder(buf.into())
-    }
-}
-
-impl Add<Self> for StrictBuilder {
-    type Output = Self;
-
-    fn add(self, mut rhs: Self) -> Self::Output {
-        let mut buf = self.0;
-        buf.append(&mut rhs.0);
-        Self(buf)
-    }
-}
-
-impl AddAssign<Self> for StrictBuilder {
-    fn add_assign(&mut self, mut rhs: Self) {
-        self.0.append(&mut rhs.0);
     }
 }
 

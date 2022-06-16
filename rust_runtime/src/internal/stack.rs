@@ -104,22 +104,6 @@ pub(crate) trait Stack {
     }
 }
 
-/*
-/// Subtrait for stack implementations without invariants
-///
-/// Extension-trait for `Stack` used only for implementations
-/// that do not require any invariant-checking on push.
-///
-/// Defines one method, `push`, that is merely a 'safe' wrapper around
-/// `Stack::push_unchecked`.
-pub(crate) trait InvariantFreeStack: Stack {
-    #[inline]
-    fn push(&mut self, item: <Self as Stack>::Item) {
-        unsafe { <Self as Stack>::push_unchecked(self, item) }
-    }
-}
-*/
-
 impl<T: Copy> Stack for Vec<T> {
     type Item = T;
 

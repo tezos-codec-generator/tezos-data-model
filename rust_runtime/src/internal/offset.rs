@@ -66,6 +66,19 @@ impl AsRef<usize> for Index {
     }
 }
 
+impl From<usize> for Index {
+    #[inline]
+    fn from(ix: usize) -> Self {
+        Self(ix)
+    }
+}
+
+impl From<Index> for usize {
+    #[inline]
+    fn from(ix: Index) -> Self {
+        ix.0
+    }
+}
 
 macro_rules! index_impl_fmt {
     ( $( $tr:ident ),+ $(,)? ) => {
@@ -137,7 +150,10 @@ pub trait IndexTracker {
     /// range `index..lim`
     /// the current offset.
     fn rem(&self) -> usize {
-        debug_assert!(self.limit() >= self.index(), "Unsound IndexTracker implementation: limit < index");
+        debug_assert!(
+            self.limit() >= self.index(),
+            "Unsound IndexTracker implementation: limit < index"
+        );
         self.limit() - self.index()
     }
 
@@ -175,7 +191,6 @@ pub trait IndexTracker {
     /// }
     /// ```
     fn advance(&mut self, n: usize) -> (usize, bool);
-
 }
 
 /// Determines whether a new context-window can be created,
@@ -241,7 +256,6 @@ impl Stack for FrameStack {
     /// # use ::rust_runtime::internal::{stack::Stack, offset::FrameStack};
     /// let mut fs : FrameStack = FrameStack::new();
     /// assert_eq!(fs.peek(), None);
-    /// fs.
     /// ```
     fn peek(&self) -> Option<Self::Item> {
         self.0.last().copied()

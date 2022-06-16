@@ -80,13 +80,14 @@ use std::convert::{TryFrom, TryInto};
 /// * `self.test_target()` should return `true` if and only if `self.offset() == self.len()` holds with at least one context window present
 /// * `self.enforce_target()` should remove the most recently set target if `self.test_target()` would return true, and panic otherwise
 pub trait Parser {
-    /// The standard buffer type a new `Parser` object can be infallibly
-    /// instantiated from.
+    /// Buffer type a new `Parser` object can be safely and infallibly
+    /// instantiated from a value of.
     ///
-    /// Typically will be one of [`bytes::OwnedBytes`] or [`bytes::ByteSlice<'a>`],
+    /// Typically will be one of [`buffer::VecBuffer`] or [`buffer::SliceBuffer<'a>`],
     /// but may have other values for more exotic or specialized Parser types.
     type Buffer;
 
+    /// Constructs an initialized `Parser` value over a buffer
     fn from_buffer(buf: Self::Buffer) -> Self;
 
     /// Computes the length of the current view of the Parser's buffer.
@@ -116,12 +117,20 @@ pub trait Parser {
     /// length `1`, aside from the different return types.
     fn consume_byte(&mut self) -> ParseResult<u8>;
 
-    /// Consumes and returns a slice of length `nbytes`
-    /// continuing from the  from the current offset of the buffer.
+    /// Attempt to consume and return a slice of length `nbytes`,
+    /// starting from the first unconsumed byte in the buffer.
     ///
-    /// It is required that if the result of this function is `Ok(s)`,
-    /// then `s.len() == nbytes`. Failure to guarantee this is
-    /// an implementation bug.
+    /// If either the absolute bounds of the buffer, or context-window limits
+    /// would be violated by such an attempt, no bytes should be consumed,
+    /// although it is not considered unsound to mutate the Parser state as long
+    /// as the error is correctly presented.
+    ///
+    /// # Invariants
+    ///
+    /// This method **MUST** return `Ok(s)` when and only when no bounds or
+    /// limits were violated, and in such cases, `s.len()` must be equal to the
+    /// requested length `nbytes`. Failure to guarantee this is an
+    /// implementation bug.
     fn consume(&mut self, nbytes: usize) -> ParseResult<&[u8]>;
 
     /// Creates a new context-window that permits exactly `n` more bytes to be consumed before
@@ -149,12 +158,6 @@ pub trait Parser {
     fn enforce_target(&mut self) -> ParseResult<()>;
 
     /// Consumes `N` bytes and returns them in array-form
-    ///
-    /// # Panics
-    ///
-    /// This function will only panic if [`consume`] is not implemented
-    /// correctly, which indicates an fundamental implementation bug,
-    /// rather than any sort of preconditon violations on the caller side.
     fn consume_arr<const N: usize>(&mut self) -> ParseResult<[u8; N]> {
         error::coerce_slice(self.consume(N)?)
     }
@@ -243,10 +246,14 @@ pub trait Parser {
     ///
     /// According to the binary schema used in `data-encoding`,
     /// the only valid boolean encodings are `0xff` for `true`
-    /// and `0x00` for false.
+    /// and `0x00` for `false`.
     ///
-    /// If the consumed byte is not a valid boolean, or if the consume operation
-    /// itself was unsuccessful, an error is returned instead.
+    /// # Errors
+    ///
+    /// If the consume operation itself fails, returns the original errors.
+    ///
+    /// Otherwise, returns `InvalidBoolean` containing the invalid byte,
+    /// wrapped suitably as a `ParseError`
     #[inline]
     fn take_bool(&mut self) -> ParseResult<bool> {
         match self.consume_byte()? {
@@ -256,47 +263,76 @@ pub trait Parser {
         }
     }
 
-    /// Parses a `u8`, `u16`, or `u32` (determined by the second generic parameter `U`),
-    /// validating it against the slice `valid` containing all legal tag-values for
-    /// the discriminated type `T`.
+    /// Parses a `u8`, `u16`, or `u32` (determined by the second generic parameter `U`)
+    /// and verifies that it is a valid discriminant for the intended type, before
+    /// returning it.
+    ///
+    /// # Validation
+    ///
+    /// This validation is informed by the argument `v`, which is a generic type `V`
+    /// satisfying the trait bounds [`TagValidator<U>`](crate::parse::error::TagValidator).
+    ///
+    /// Currently, `TagValidator<U>` is implemented for arrays, slices, and vectors containing
+    /// all `U` values that are legal as discriminants for the type `T`
+    ///
+    /// # Invariants
     ///
     /// All implementations must uphold the contract that the only possible return values
     /// are `Err(_)`, and `Ok(val)` for some `val` in `valid`.
-    fn take_tagword<T, U, V>(&mut self, validator: V) -> ParseResult<U>
+    fn take_tagword<T, U, V>(&mut self, v: V) -> ParseResult<U>
     where
         U: error::TagType + crate::conv::Decode,
         Self: Sized,
         V: error::TagValidator<U>,
     {
-        if validator.has_valid() {
-            return Err(ParseError::InternalError(InternalError::NoValidTags));
-        }
         let actual: U = crate::conv::Decode::parse(self)?;
-        if validator.validate(actual) {
+        if v.is_valid(actual) {
             Ok(actual)
-        } else {
+        } else if v.has_valid() {
             Err(<U as error::TagType>::promote(TagError::new(
                 actual,
                 std::any::type_name::<T>(),
-                Some(validator.into_valid())
+                Some(v.into_valid()),
             )))
+        } else {
+            Err(ParseError::InternalError(InternalError::NoValidTags))
         }
     }
 
+    /// Consumes and returns a `Vec<u8>` of length `nbytes`, following
+    /// the same behavioral guarantees as [`consume`].
+    ///
+    /// The default implementation is to call `consume` and convert the
+    /// resulting slice into a `Vec<u8>`.
     #[inline]
     fn take_dynamic(&mut self, nbytes: usize) -> ParseResult<Vec<u8>> {
         self.consume(nbytes).map(Vec::from)
     }
 
+    /// Consumes and returns an array of the constant length `N`
+    ///
+    /// The default implementation is a call to [`consume_arr`]
+    #[inline]
     fn take_fixed<const N: usize>(&mut self) -> ParseResult<[u8; N]> {
         self.consume_arr::<N>()
     }
 
+    /// Consumes bytes until the predicate `is_terminal` is satisfied,
+    /// returning a `Vec<u8>` consisting of all the bytes that were
+    /// consumed, up until and including the first byte that satisfied
+    /// the predicate.
+    ///
+    /// If the predicate has not been satisfied by the time no additional bytes
+    /// can be legally consumed, returns an error.
+    ///
+    /// This is primarily intended for the schema-inherent self-terminating
+    /// Zarith types [`N`](crate::zarith::n::N) and [`Z`](crate::zarith::z::Z).
+    ///
     fn take_self_terminating<F>(&mut self, is_terminal: F) -> ParseResult<Vec<u8>>
     where
         F: Fn(u8) -> bool,
     {
-        let mut ret: Vec<u8> = Vec::with_capacity(self.view_len() - self.offset());
+        let mut ret: Vec<u8> = Vec::with_capacity(self.remainder());
         loop {
             match self.consume_byte() {
                 Ok(byte) => {
@@ -311,10 +347,21 @@ pub trait Parser {
     }
 }
 
-pub mod bytes {
+pub mod buffer {
+    //! Common buffer types for `Parser` implementors
+    //!
+    //! This module defines the common low-level buffer types
+    //! used internally by the provided implementors of the
+    //! [`Parser`] trait.
+    //!
+    //! Currently, this includes [`SliceBuffer<'a>`], for `SliceParser<'a>`,
+    //! and [`VecBuffer`] for [`ByteParser`].
+    //!
+    //! [`Parser`]: crate::parse::Parser
+
     use crate::hexstring::HexString;
 
-    /// Newtype around a lifetime-annotated immutable reference `&'a [u8]`
+    /// Newtype around a lifetime-annotated immutable slice `&'a [u8]`
     ///
     /// There is no overwhelming motivation for a full newtype,
     /// other than to prevent overlapping instances for different interpretations
@@ -325,17 +372,17 @@ pub mod bytes {
     /// any other context.
     #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
     #[repr(transparent)]
-    pub struct ByteSlice<'a>(&'a [u8]);
+    pub struct SliceBuffer<'a>(&'a [u8]);
 
-    impl ByteSlice<'_> {
-        /// Creates an explicitly static `ByteSlice` from a static slice
-        pub const fn from_static(slice: &'static [u8]) -> ByteSlice<'static> {
-            ByteSlice(slice)
+    impl SliceBuffer<'_> {
+        /// Creates an explicitly static `SliceBuffer` from a static slice
+        pub const fn from_static(slice: &'static [u8]) -> SliceBuffer<'static> {
+            SliceBuffer(slice)
         }
     }
 
-    impl<'a> ByteSlice<'a> {
-        /// Extracts a copy of the internal `&'a [u8]` of a borrowed `ByteSlice`
+    impl<'a> SliceBuffer<'a> {
+        /// Extracts a copy of the internal `&'a [u8]` of a borrowed `SliceBuffer`
         ///
         /// Aside from signature, this is identical to [`into_slice`].
         pub const fn as_slice(&self) -> &'a [u8] {
@@ -349,31 +396,27 @@ pub mod bytes {
             self.0
         }
 
-        /// Returns `true` if the `ByteSlice` has a length of 0
+        /// Returns `true` if the `SliceBuffer` has a length of 0
         pub const fn is_empty(&self) -> bool {
             self.0.is_empty()
         }
 
-        /// Returns the number of bytes in a ByteSlice.
-        #[inline(always)]
+        /// Returns the number of bytes in a `SliceBuffer`.
+        #[inline]
         pub const fn len(&self) -> usize {
             self.0.len()
         }
 
-        /// Creates a `ByteSlice` from a slice, using the same lifetime annotation
+        /// Creates a `SliceBuffer<'a>` from a slice of type `&'a [u8]`
         pub const fn new(slice: &'a [u8]) -> Self {
             Self(slice)
         }
 
-        /// Attempt to split off the head byte of a `ByteSlice`
+        /// Attempt to extract the first byte of a `SliceBuffer`, returning
+        /// both the extracted element and the remainder of the buffer.
         ///
-        /// Returns `None` if the `ByteSlice` is empty
-        ///
-        /// Otherwise, returns `Some()
-        ///
-        /// # Panics
-        ///
-        pub const fn pop_first(&self) -> Option<(u8, Self)> {
+        /// Returns `None` if the `SliceBuffer` is empty
+        pub const fn cut_first(&self) -> Option<(u8, Self)> {
             if let [first, tail @ ..] = self.0 {
                 Some((*first, Self(tail)))
             } else {
@@ -388,7 +431,7 @@ pub mod bytes {
         /// Calling this method on an empty `ByteSlice` is *[undefined behavior]*.
         ///
         /// [undefined behavior]: https://doc.rust-lang.org/reference/behavior-considered-undefined.html
-        pub unsafe fn pop_first_unchecked(&self) -> (u8, Self) {
+        pub unsafe fn cut_first_unchecked(&self) -> (u8, Self) {
             (*self.0.get_unchecked(0), Self(self.0.get_unchecked(1..)))
         }
 
@@ -450,28 +493,29 @@ pub mod bytes {
         }
     }
 
-    impl<'a> From<&'a [u8]> for ByteSlice<'a> {
+    impl<'a> From<&'a [u8]> for SliceBuffer<'a> {
         #[inline]
         fn from(bytes: &'a [u8]) -> Self {
             Self(bytes)
         }
     }
 
-    /// Newtype around a monomorphized `Vec<u8>`
+    /// Newtype around `Vec<u8>` that only permits immutable access
     ///
-    /// There is no overwhelming motivation for having this type be separate,
-    /// other than to prevent overlapping instances for different interpretations
-    /// of what sort of role `Vec<u8>` plays in the context of the runtime.
+    /// This newtype is used to allow for explicit signalling of intended role for
+    /// the use of `Vec<u8>` as the underlying, immutable buffer of a [`ByteParser`]
+    /// or equivalent-model `Parser` implementation.
     ///
-    /// In this case, `OwnedBytes` is explicitly used only as the buffer type for
-    /// a vector-based [`Parser`], and is not to be used in place of `Vec<u8>` in
-    /// any other context.
-    #[derive(Clone, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    /// The contents of a `VecBuffer` are not mutated by any of the inherent methods
+    /// defined in this module.
+    ///
+    /// [`ByteParser`]: crate::parse::byteparser::ByteParser
+    #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
     #[repr(transparent)]
-    pub struct OwnedBytes(Vec<u8>);
+    pub struct VecBuffer(Vec<u8>);
 
-    impl OwnedBytes {
-        /// Returns the length of the vector enclosed by an OwnedBytes value.
+    impl VecBuffer {
+        /// Returns the number of bytes in a `VecBuffer`
         pub fn len(&self) -> usize {
             self.0.len()
         }
@@ -496,14 +540,9 @@ pub mod bytes {
 
         /// Borrows a range of bytes starting at index `ix`, of length `len`.
         ///
-        /// # Safety
+        /// # Panics
         ///
-        /// This function is marked as `unsafe` to ensure that the caller is certain
-        /// that the attempted slice access will not violate the bounds of the vector
-        /// wrapped inside the receiver. If this guarantee is not made, this function
-        /// will panic as usual, but does not itself perform any bounds validation beyond
-        /// what Rust itself performs when attempting to borrow a range of indices of
-        /// a vector as a slice.
+        /// Will panic if `ix + len` is out-of-bounds
         pub fn get_slice(&self, ix: usize, len: usize) -> &[u8] {
             assert!(ix + len <= self.len());
             unsafe { self.get_slice_unchecked(ix, len) }
@@ -525,56 +564,56 @@ pub mod bytes {
         ///
         /// # Panics
         ///
-        /// Will panic if the index is out of bounds
+        /// Will panic if the `ix` is out-of-bounds
         pub fn get_byte(&self, ix: usize) -> u8 {
             assert!(ix <= self.len());
             unsafe { self.get_byte_unchecked(ix) }
         }
     }
 
-    impl std::fmt::Debug for OwnedBytes {
+    impl std::fmt::Debug for VecBuffer {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
             <Vec<u8> as std::fmt::Debug>::fmt(&self.0, f)
         }
     }
 
-    impl From<&[u8]> for OwnedBytes {
+    impl From<&[u8]> for VecBuffer {
         fn from(bytes: &[u8]) -> Self {
             Self(bytes.to_owned())
         }
     }
 
-    impl From<Vec<u8>> for OwnedBytes {
+    impl From<Vec<u8>> for VecBuffer {
         fn from(bytes: Vec<u8>) -> Self {
             Self(bytes)
         }
     }
 
-    impl<const N: usize> From<[u8; N]> for OwnedBytes {
+    impl<const N: usize> From<[u8; N]> for VecBuffer {
         fn from(bytes: [u8; N]) -> Self {
             Self(bytes.to_vec())
         }
     }
 
-    impl<const N: usize> From<&'_ [u8; N]> for OwnedBytes {
+    impl<const N: usize> From<&'_ [u8; N]> for VecBuffer {
         fn from(bytes: &'_ [u8; N]) -> Self {
             Self(bytes.to_vec())
         }
     }
 
-    impl From<HexString> for OwnedBytes {
+    impl From<HexString> for VecBuffer {
         fn from(hex: HexString) -> Self {
             Self(hex.into_vec())
         }
     }
 
-    macro_rules! string_to_ownedbytes {
+    macro_rules! string_to_vecbuffer {
         ( $src:ty ) => {
             #[cfg(feature = "implicit_hexstring")]
-            impl std::convert::TryFrom<$src> for $crate::parse::bytes::OwnedBytes
+            impl std::convert::TryFrom<$src> for $crate::parse::buffer::VecBuffer
             where
                 $crate::hexstring::HexString: std::convert::TryFrom<$src>,
-                $crate::parse::bytes::OwnedBytes: From<$crate::hexstring::HexString>,
+                Self: From<$crate::hexstring::HexString>,
             {
                 type Error = <$crate::hexstring::HexString as std::convert::TryFrom<$src>>::Error;
 
@@ -584,7 +623,7 @@ pub mod bytes {
             }
 
             #[cfg(not(feature = "implicit_hexstring"))]
-            impl From<$src> for $crate::parse::bytes::OwnedBytes {
+            impl From<$src> for $crate::parse::buffer::VecBuffer {
                 fn from(s: $src) -> Self {
                     Self(s.as_bytes().to_owned())
                 }
@@ -592,13 +631,12 @@ pub mod bytes {
         };
     }
 
-    string_to_ownedbytes!(&'_ str);
-    string_to_ownedbytes!(String);
-    string_to_ownedbytes!(&'_ String);
-    string_to_ownedbytes!(std::borrow::Cow<'_, str>);
+    string_to_vecbuffer!(&'_ str);
+    string_to_vecbuffer!(String);
+    string_to_vecbuffer!(&'_ String);
+    string_to_vecbuffer!(std::borrow::Cow<'_, str>);
 }
 
-#[cfg(not(feature = "check_parser_on_drop"))]
 pub mod cleanup {
     #[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
     pub enum LeftoverState {
@@ -631,7 +669,7 @@ pub mod cleanup {
             }
         }
 
-        unsafe fn take_vec(&mut self) -> Vec<u8> {
+        pub(super) unsafe fn take_vec(&mut self) -> Vec<u8> {
             let mut tmp = Self::Empty;
             std::mem::swap(self, &mut tmp);
             if let Self::Windowless(ret) = tmp {
@@ -670,40 +708,24 @@ pub mod cleanup {
         }
     }
 
-    #[derive(Clone)]
+    #[derive(Debug, Clone, PartialEq)]
     pub enum InvariantError {
         ErrorCaseUnexpected(super::error::WindowError),
         ErrorKindUnexpected(super::error::ParseError),
         ErrorUnexpected(super::error::ParseError),
     }
 
-    impl std::fmt::Debug for InvariantError {
-        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            match self {
-                Self::ErrorCaseUnexpected(arg0) => {
-                    f.debug_tuple("ErrorCaseUnexpected").field(arg0).finish()
-                }
-                Self::ErrorKindUnexpected(arg0) => {
-                    f.debug_tuple("ErrorKindUnexpected").field(arg0).finish()
-                }
-                Self::ErrorUnexpected(arg0) => {
-                    f.debug_tuple("ErrorUnexpected").field(arg0).finish()
-                }
-            }
-        }
-    }
-
     impl std::fmt::Display for InvariantError {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
             match self {
-                InvariantError::ErrorCaseUnexpected(wke) => {
-                    write!(f, "Unexpected window-error case: {}", wke)
+                InvariantError::ErrorCaseUnexpected(e) => {
+                    write!(f, "unexpected window-error case: {}", e)
                 }
-                InvariantError::ErrorKindUnexpected(nwe) => {
-                    write!(f, "Unexpected non-window error: {}", nwe)
+                InvariantError::ErrorKindUnexpected(e) => {
+                    write!(f, "unexpected non-window error: {}", e)
                 }
                 InvariantError::ErrorUnexpected(e) => {
-                    write!(f, "Unexpected error: {}", e)
+                    write!(f, "unexpected error: {}", e)
                 }
             }
         }
@@ -711,122 +733,7 @@ pub mod cleanup {
 
     impl std::error::Error for InvariantError {}
 
-    fn modify<T, E, F>(x: &mut Result<T, E>, mut f: F)
-    where
-        F: FnMut(&mut T),
-    {
-        match x {
-            Ok(o) => f(o),
-            Err(_) => (),
-        }
-    }
-
     pub type ParserStatus = std::result::Result<LeftoverState, InvariantError>;
-
-    pub fn drop_parser(mut p: impl super::Parser) -> ParserStatus {
-        use crate::parse::error::*;
-
-        let mut ret = Ok(LeftoverState::new());
-
-        loop {
-            let res = p.remainder();
-            if res != 0 {
-                match p.take_dynamic(res) {
-                    Ok(ref mut tmp) => {
-                        modify(&mut ret, |los| los.append(tmp));
-                    }
-                    Err(e) => {
-                        ret = Err(InvariantError::ErrorUnexpected(e));
-                        break;
-                    }
-                }
-            }
-            match p.enforce_target() {
-                Ok(()) => {
-                    modify(&mut ret, LeftoverState::escape_context);
-                }
-                Err(e) => {
-                    if let ParseError::WindowError(w_err) = e {
-                        match w_err {
-                            WindowError::CloseWithoutWindow => break,
-                            _ => ret = Err(InvariantError::ErrorCaseUnexpected(w_err)),
-                        }
-                    } else {
-                        ret = Err(InvariantError::ErrorKindUnexpected(e));
-                    }
-                }
-            }
-        }
-        ret
-    }
-}
-
-macro_rules! impl_drop_parser {
-    (@drop) => {
-        #[cfg(feature = "check_parser_on_drop")]
-        fn drop(&mut self) {
-                use $crate::parse::error::*;
-                use $crate::parse::Parser;
-                let mut incomplete: bool = false;
-                let mut win_num: usize = 0;
-                loop {
-                    let res = self.remainder();
-                    if res != 0 {
-                        incomplete = true;
-                        if win_num == 0 {
-                            eprintln!("\x1b[1m\x1b[31mWarning\x1b[0m: A parser with at least one open context window is leaving memory...");
-                        }
-                        match self.get_dynamic(res) {
-                            Ok(tmp) => {
-                                eprintln!("\tContents of Frame #(?-{}): {:?}", win_num, tmp);
-                            }
-                            Err(e) => {
-                                eprintln!("\tCannot display contents of frame #(?-{}): {}", win_num, e);
-                            }
-                        }
-                    }
-                    match self.enforce_target() {
-                        Ok(()) => {
-                            incomplete = true;
-                            win_num += 1;
-                        }
-                        Err(e) => {
-                            if let ParseError::WindowError(wek) = e {
-                                match wek {
-                                    WindowErrorKind::CloseWithResidue { .. } => unreachable!(),
-                                    WindowErrorKind::CloseWithoutWindow => break,
-                                    WindowErrorKind::OpenWouldExceedBuffer { .. } => unreachable!(),
-                                    WindowErrorKind::OpenWouldExceedWindow { .. } => unreachable!(),
-                                    WindowErrorKind::OffsetOverflow { .. } => {
-                                        panic!(
-                                            "Offset overflow detected during cleanup of dropped Parser: {}",
-                                            wek
-                                        );
-                                    }
-                                }
-                            } else {
-                                unreachable!();
-                            }
-                        }
-                    }
-                }
-                if incomplete {
-                    #[cfg(feature = "panic_on_incomplete_parse")]
-                    panic!("Parser dropped before it was fully consumed (details written to stderr)!");
-                }
-                return;
-            }
-
-            #[cfg(not(feature = "check_parser_on_drop"))]
-            fn drop(&mut self) {
-                return;
-            }
-    };
-    ($t:ty) => {
-        impl Drop for $t {
-            impl_drop_parser!{@drop}
-        }
-    };
 }
 
 macro_rules! impl_iterator_parser {
@@ -841,23 +748,67 @@ macro_rules! impl_iterator_parser {
     };
 }
 
-pub(self) use impl_drop_parser;
 pub(self) use impl_iterator_parser;
 
 pub mod byteparser {
     use crate::internal::offset::{ContextOffset, IndexTracker};
 
-    use super::bytes::OwnedBytes;
+    use super::buffer::VecBuffer;
+    use super::cleanup::{InvariantError, LeftoverState, ParserStatus};
     use super::error::{ParseError, ParseResult};
+    use super::Parser;
 
     #[derive(Debug)]
     pub struct ByteParser {
-        buffer: OwnedBytes,
+        buffer: VecBuffer,
         offset: ContextOffset,
     }
 
-    impl super::Parser for ByteParser {
-        type Buffer = OwnedBytes;
+    impl ByteParser {
+        pub fn cleanup(mut self) -> ParserStatus {
+            use crate::parse::error::*;
+
+            let mut ret = Ok(LeftoverState::new());
+
+            loop {
+                let res = self.remainder();
+                if res != 0 {
+                    match self.take_dynamic(res) {
+                        Ok(ref mut tmp) => {
+                            if let Ok(o) = &mut ret {
+                                o.append(tmp)
+                            }
+                        }
+                        Err(e) => {
+                            ret = Err(InvariantError::ErrorUnexpected(e));
+                            break;
+                        }
+                    }
+                }
+                match self.enforce_target() {
+                    Ok(()) => {
+                        if let Ok(o) = &mut ret {
+                            o.escape_context()
+                        }
+                    }
+                    Err(e) => {
+                        if let ParseError::WindowError(w_err) = e {
+                            match w_err {
+                                WindowError::CloseWithoutWindow => break,
+                                _ => ret = Err(InvariantError::ErrorCaseUnexpected(w_err)),
+                            }
+                        } else {
+                            ret = Err(InvariantError::ErrorKindUnexpected(e));
+                        }
+                    }
+                }
+            }
+            ret
+        }
+    }
+
+    impl Parser for ByteParser {
+        type Buffer = VecBuffer;
 
         /// Create a `ByteParser` from any buffer type, i.e. any type `T` that
         /// satisfies `OwnedBytes: From<T>`.
@@ -880,21 +831,6 @@ pub mod byteparser {
         #[must_use]
         fn offset(&self) -> usize {
             self.offset.index()
-        }
-
-        #[inline]
-        fn set_fit(&mut self, n: usize) -> ParseResult<()> {
-            self.offset.set_fit(n)
-        }
-
-        #[inline]
-        fn test_target(&mut self) -> ParseResult<bool> {
-            self.offset.test_target()
-        }
-
-        #[inline]
-        fn enforce_target(&mut self) -> ParseResult<()> {
-            self.offset.enforce_target()
         }
 
         fn consume_byte(&mut self) -> ParseResult<u8> {
@@ -926,25 +862,83 @@ pub mod byteparser {
                 ))
             }
         }
+
+        #[inline]
+        fn set_fit(&mut self, n: usize) -> ParseResult<()> {
+            self.offset.set_fit(n)
+        }
+
+        #[inline]
+        fn test_target(&mut self) -> ParseResult<bool> {
+            self.offset.test_target()
+        }
+
+        #[inline]
+        fn enforce_target(&mut self) -> ParseResult<()> {
+            self.offset.enforce_target()
+        }
     }
 
     super::impl_iterator_parser!(ByteParser);
-    super::impl_drop_parser! {ByteParser}
 }
 
 pub mod memoparser {
     use crate::internal::offset::{ContextOffset, IndexTracker};
     use crate::internal::splitvec::SplitVec;
 
-    use super::bytes::OwnedBytes;
-    use super::error::ParseError;
-    use super::ParseResult;
+    use super::buffer::VecBuffer;
+    use super::cleanup::{InvariantError, LeftoverState, ParserStatus};
+    use super::error::{ParseError, ParseResult};
+    use super::Parser;
 
     #[derive(Debug)]
     pub struct MemoParser {
-        buffer: OwnedBytes,
+        buffer: VecBuffer,
         offset: ContextOffset,
         munches: Vec<usize>,
+    }
+
+    impl MemoParser {
+        pub fn cleanup(mut self) -> ParserStatus {
+            use crate::parse::error::*;
+
+            let mut ret = Ok(LeftoverState::new());
+
+            loop {
+                let res = self.remainder();
+                if res != 0 {
+                    match self.take_dynamic(res) {
+                        Ok(ref mut tmp) => {
+                            if let Ok(o) = &mut ret {
+                                o.append(tmp);
+                            }
+                        }
+                        Err(e) => {
+                            ret = Err(InvariantError::ErrorUnexpected(e));
+                            break;
+                        }
+                    }
+                }
+                match self.enforce_target() {
+                    Ok(()) => {
+                        if let Ok(o) = &mut ret {
+                            o.escape_context();
+                        }
+                    }
+                    Err(e) => {
+                        if let ParseError::WindowError(w_err) = e {
+                            match w_err {
+                                WindowError::CloseWithoutWindow => break,
+                                _ => ret = Err(InvariantError::ErrorCaseUnexpected(w_err)),
+                            }
+                        } else {
+                            ret = Err(InvariantError::ErrorKindUnexpected(e));
+                        }
+                    }
+                }
+            }
+            ret
+        }
     }
 
     macro_rules! eprint_munches {
@@ -962,7 +956,7 @@ pub mod memoparser {
     }
 
     impl super::Parser for MemoParser {
-        type Buffer = OwnedBytes;
+        type Buffer = VecBuffer;
 
         /// Create a `MemoParser` from any buffer type, i.e. any type `T` that
         /// satisfies `OwnedBytes: From<T>`.
@@ -1041,24 +1035,65 @@ pub mod memoparser {
         }
     }
 
-    super::impl_iterator_parser! {MemoParser}
-    super::impl_drop_parser! {MemoParser}
+    super::impl_iterator_parser!(MemoParser);
 }
 
 pub mod sliceparser {
-    use super::{
-        bytes::ByteSlice,
-        error::{ParseError, ParseResult, WindowError},
-    };
+    use super::buffer::SliceBuffer;
+    use super::cleanup::{InvariantError, LeftoverState, ParserStatus};
+    use super::error::{ParseError, ParseResult, WindowError};
+    use super::Parser;
+    use crate::internal::view::ViewStack;
     use crate::internal::Stack;
 
     #[derive(Debug)]
     pub struct SliceParser<'a> {
-        view_stack: Vec<ByteSlice<'a>>,
+        view_stack: ViewStack<'a>,
     }
 
-    impl<'a> super::Parser for SliceParser<'a> {
-        type Buffer = ByteSlice<'a>;
+    impl<'a> SliceParser<'a> {
+        pub fn cleanup(mut self) -> ParserStatus {
+            let mut ret = Ok(LeftoverState::new());
+
+            loop {
+                let res = self.remainder();
+                if res != 0 {
+                    match self.take_dynamic(res) {
+                        Ok(ref mut tmp) => {
+                            if let Ok(o) = &mut ret {
+                                o.append(tmp);
+                            }
+                        }
+                        Err(e) => {
+                            ret = Err(InvariantError::ErrorUnexpected(e));
+                            break;
+                        }
+                    }
+                }
+                match self.enforce_target() {
+                    Ok(()) => {
+                        if let Ok(o) = &mut ret {
+                            o.escape_context();
+                        }
+                    }
+                    Err(e) => {
+                        if let ParseError::WindowError(w_err) = e {
+                            match w_err {
+                                WindowError::CloseWithoutWindow => break,
+                                _ => ret = Err(InvariantError::ErrorCaseUnexpected(w_err)),
+                            }
+                        } else {
+                            ret = Err(InvariantError::ErrorKindUnexpected(e));
+                        }
+                    }
+                }
+            }
+            ret
+        }
+    }
+
+    impl<'a> Parser for SliceParser<'a> {
+        type Buffer = SliceBuffer<'a>;
 
         /// Construct a `SliceParser<'a>` over a buffer created by an infallible
         /// conversion from `T` to `ByteSlice<'a>`
@@ -1069,7 +1104,7 @@ pub mod sliceparser {
         /// will panic with that error as its displayed exception context.
         fn from_buffer(buffer: Self::Buffer) -> Self {
             Self {
-                view_stack: vec![buffer],
+                view_stack: ViewStack::from_buffer(buffer),
             }
         }
 
@@ -1101,7 +1136,7 @@ pub mod sliceparser {
                     },
                 )),
                 Some(frame) => {
-                    if let Some((ret, temp)) = frame.pop_first() {
+                    if let Some((ret, temp)) = frame.cut_first() {
                         *frame = temp;
                         Ok(ret)
                     } else {
@@ -1161,7 +1196,7 @@ pub mod sliceparser {
                         unsafe {
                             let (novel, rem) = frame.split_unchecked(n);
                             *frame = rem;
-                            self.view_stack.push(novel);
+                            self.view_stack.push_unchecked(novel);
                             Ok(())
                         }
                     } else {
@@ -1199,8 +1234,7 @@ pub mod sliceparser {
         }
     }
 
-    super::impl_iterator_parser! {SliceParser<'_>}
-    super::impl_drop_parser! {SliceParser<'_>}
+    super::impl_iterator_parser!(SliceParser<'_>);
 }
 
 use byteparser::ByteParser;

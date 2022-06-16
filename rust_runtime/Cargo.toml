@@ -21,6 +21,7 @@ implicit_hexstring = []
 check_padding = []
 index_binary_formatting = []
 unfreeze_spanbuffer = []
+smallvec_framestack = ["smallvec"]
 
 [dependencies]
 lazy_static = "1.4.0"
@@ -30,6 +31,7 @@ encode_derive = { path = "encode_derive", version = "0.1.0" }
 decode_derive = { path = "decode_derive", version = "0.1.0" }
 estimable_derive = { path = "estimable_derive", version = "0.1.0" }
 arrayvec = { version = "0.7.2", optional = true }
+smallvec = { version = "1.8.0", optional = true, features = ["const_new", "const_generics", "union"] }
 
 [dev-dependencies]
 criterion = "0.3"
