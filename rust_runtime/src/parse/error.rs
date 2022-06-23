@@ -243,17 +243,22 @@ impl Display for TokenError {
                 write!(
                     f,
                     "self-terminating element failed to terminate within bounding context: `{}`",
-                    crate::util::hex_of_bytes(buf)
+                    crate::hexstring::util::hex_of_bytes(buf)
                 )
             }
             Self::NonNullPaddingByte { padding, invalid } => {
                 if let (valid, &[nonnull, ref tail @ ..]) = padding.split_at(*invalid) {
                     write!(f, "non-null byte found in padding: ")?;
-                    crate::util::write_all_hex(valid, f)?;
+                    for &byte in valid {
+                        write!(f, "{byte:02x}")?
+                    }
                     write!(f, ">{nonnull:02x}<")?;
-                    crate::util::write_all_hex(tail, f)
+                    for &byte in tail {
+                        write!(f, "{byte:02x}")?
+                    }
+                    Ok(())
                 } else {
-                    unreachable!()
+                    unreachable!("first invalid byte in non-null-padding-byte error should not be out-of-bounds")
                 }
             }
         }

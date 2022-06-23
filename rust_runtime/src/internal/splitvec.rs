@@ -13,7 +13,7 @@
 //! generically for implementors of the [`Parser`](../../parse/trait.Parser.html)
 //! trait.
 
-use std::{fmt::Write, ops::AddAssign};
+use std::ops::AddAssign;
 
 mod spanbuffer {
     use std::ops::AddAssign;
@@ -758,12 +758,14 @@ impl<T: std::fmt::Debug> std::fmt::Debug for SplitVec<T> {
 
 impl std::fmt::Display for SplitVec<u8> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let mut buf: &[u8] = &self.buffer[..];
+        let buf: &[u8] = &self.buffer[..];
         write!(f, "[|")?;
+        let mut ix: usize = 0;
         for l in self.spans.iter() {
-            crate::util::write_all_hex(&buf[..l], f)?;
-            f.write_char('|')?;
-            buf = &buf[l..];
+            for &byte in &buf[ix..ix + l] {
+                write!(f, "{byte:02x}|")?
+            }
+            ix += l;
         }
         write!(f, "]")
     }

@@ -13,9 +13,7 @@
 //! manual inspection, as it may be difficult to determine what bytes in a
 //! serialized bytestring belong to what segment of a complex codec type.
 
-use std::fmt::Write;
-
-use crate::{conv::target::Target, internal::SplitVec, util::write_all_hex};
+use crate::{conv::target::Target, internal::SplitVec};
 
 use super::Builder;
 
@@ -113,14 +111,16 @@ impl std::fmt::Debug for MemoBuffer {
 
 impl std::fmt::Display for MemoBuffer {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let mut buf: &[u8] = &self.buf[..];
+        let buf: &[u8] = &self.buf[..];
         write!(f, "[|")?;
-        for &l in self.lens.iter() {
-            write_all_hex(&buf[..l], f)?;
-            f.write_char('|')?;
-            buf = &buf[l..];
+        let mut ix: usize = 0;
+        for l in self.lens.iter() {
+            for &byte in &buf[ix..ix + l] {
+                write!(f, "{byte:02x}|")?
+            }
+            ix += l;
         }
-        f.write_char(']')
+        write!(f, "]")
     }
 }
 

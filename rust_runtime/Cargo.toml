@@ -22,6 +22,7 @@ check_padding = []
 index_binary_formatting = []
 unfreeze_spanbuffer = []
 smallvec_framestack = ["smallvec"]
+deref_sequence = []
 
 [dependencies]
 lazy_static = "1.4.0"
@@ -43,3 +44,8 @@ harness = false
 [[bench]]
 name = "write_bench"
 harness = false
+
+[[bench]]
+name = "hexeq_bench"
+harness = false
+

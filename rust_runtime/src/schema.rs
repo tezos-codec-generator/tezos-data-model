@@ -470,7 +470,7 @@ pub mod boundedseq_impl {
     /// Extension trait for implementations of `LimSeq` and `FixSeq`
     pub trait BoundedSeqImpl
     where
-        Self: IsBoundedSeq + std::ops::Deref<Target = [<Self as IsBoundedSeq>::Elem]>
+        Self: IsBoundedSeq + std::ops::Deref<Target = [<Self as IsBoundedSeq>::Elem]>,
     {
         /// Pushes an element to the end of the bounded sequence without checking
         /// whether it violates the bounds of the type in question.
@@ -708,7 +708,11 @@ where
         if seq.len() == N {
             Ok(seq)
         } else {
-            Err(crate::error::ConstraintError::ConstantLengthViolation { expected: N, actual: seq.len() }.into())
+            Err(crate::error::ConstraintError::ConstantLengthViolation {
+                expected: N,
+                actual: seq.len(),
+            }
+            .into())
         }
     }
 }
@@ -726,7 +730,6 @@ pub mod limseq_vec {
         const LIMIT: usize = N;
     }
 
-
     impl<T, const N: usize> super::boundedseq_impl::BoundedSeqImpl for LimSeq<T, N> {
         unsafe fn push_unchecked(&mut self, value: Self::Elem) {
             self.0.push(value)
@@ -738,7 +741,6 @@ pub mod limseq_vec {
             Self(Vec::with_capacity(N))
         }
     }
-
 
     impl<T, const N: usize> From<LimSeq<T, N>> for Vec<T> {
         fn from(val: LimSeq<T, N>) -> Self {
@@ -756,7 +758,6 @@ pub mod limseq_vec {
             self.0.into_iter()
         }
     }
-
 
     impl<'a, T: 'a, const N: usize> IntoIterator for &'a LimSeq<T, N> {
         type Item = &'a T;
@@ -790,6 +791,21 @@ pub mod limseq_vec {
                 })
             } else {
                 Ok(Self(Vec::from(slice)))
+            }
+        }
+    }
+
+    impl<T, const N: usize> std::convert::TryFrom<Vec<T>> for LimSeq<T, N> {
+        type Error = crate::error::ConstraintError;
+
+        fn try_from(value: Vec<T>) -> Result<Self, Self::Error> {
+            if N < value.len() {
+                Err(crate::error::ConstraintError::TooManyElements {
+                    limit: N,
+                    actual: value.len(),
+                })
+            } else {
+                Ok(Self(value))
             }
         }
     }
@@ -912,8 +928,8 @@ impl<T: Decode, const N: usize> Decode for LimSeq<T, N> {
 
 /// Sequence type with unbounded variable length
 ///
-/// Equivalent to `Vec<T>`, except in the context of distinguishing various uses
-/// of `Vec` as distinct schema, and runtime-internal, types.
+/// `Sequence<T>` is modelled to use an underlying `Vec<T>`, but is only to be
+/// used as unbounded-sequence codec elements.
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Hash)]
 #[repr(transparent)]
 pub struct Sequence<T>(Vec<T>);
@@ -930,21 +946,25 @@ impl<T> Sequence<T> {
     }
 
     /// Converts an existing `Vec<T>` into a `Sequence<T>`
+    #[must_use]
     pub fn from_vec(v: Vec<T>) -> Self {
         Self(v)
     }
 
     /// Destructs a `Sequence<T>` into its internal `Vec<T>`
-    pub fn into_vec(self) -> Vec<T> {
+    #[must_use]
+    pub fn into_inner(self) -> Vec<T> {
         self.0
     }
 
     /// Returns a slice consisting of the full `Sequence<T>`
+    #[inline]
     pub fn as_slice(&self) -> &[T] {
         self.0.as_slice()
     }
 
     /// Returns a mutable slice consisting of the full `Sequence<T>`
+    #[inline]
     pub fn as_mut_slice(&mut self) -> &mut [T] {
         self.0.as_mut_slice()
     }
@@ -968,6 +988,7 @@ impl<T> AsMut<[T]> for Sequence<T> {
     }
 }
 
+#[cfg(feature = "deref_sequence")]
 impl<T> Deref for Sequence<T> {
     type Target = [T];
 
@@ -976,6 +997,7 @@ impl<T> Deref for Sequence<T> {
     }
 }
 
+#[cfg(feature = "deref_sequence")]
 impl<T> DerefMut for Sequence<T> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         self.0.as_mut_slice()
@@ -1014,9 +1036,7 @@ impl<'a, T> IntoIterator for &'a mut Sequence<T> {
 
 impl<T> FromIterator<T> for Sequence<T> {
     fn from_iter<I: IntoIterator<Item = T>>(iter: I) -> Self {
-        let mut seq : Self = Default::default();
-        seq.extend(iter);
-        seq
+        Self(Vec::from_iter(iter))
     }
 }
 
@@ -1025,7 +1045,6 @@ impl<T> Extend<T> for Sequence<T> {
         self.0.extend(iter)
     }
 }
-
 
 impl<T> From<Sequence<T>> for Vec<T> {
     fn from(val: Sequence<T>) -> Self {

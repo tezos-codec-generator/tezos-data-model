@@ -68,7 +68,6 @@ mod internal;
 pub mod parse;
 pub mod prim;
 pub mod schema;
-pub mod util;
 pub mod zarith;
 
 pub use crate::autobox::AutoBox;

@@ -34,7 +34,7 @@
 
 use std::string::FromUtf8Error;
 use crate::conv::target::Target;
-use crate::util::hex_of_bytes;
+use crate::hexstring::util::hex_of_bytes;
 
 /// `Target` extension trait with monoidal concatenation
 ///
@@ -88,7 +88,7 @@ where
 
     /// Return a string consisting of the raw hexadecimal sequence of words in the Builder
     fn into_hex(self) -> String {
-        hex_of_bytes(self.into_vec())
+        hex_of_bytes(&self.into_vec())
     }
 
     /// Return a Builder object containing zero bytes. Defaults to words over empty array.

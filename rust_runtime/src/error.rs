@@ -55,6 +55,16 @@ pub enum ConvError<T> {
     HexError(T),
 }
 
+impl ConvError<&'_ str>
+{
+    pub fn to_owned(self) -> ConvError<String> {
+        match self {
+            ConvError::ParityError(src) => ConvError::ParityError(src.to_owned()),
+            ConvError::HexError(src) => ConvError::HexError(src.to_owned()),
+        }
+    }
+}
+
 impl Display for ConvError<()> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
