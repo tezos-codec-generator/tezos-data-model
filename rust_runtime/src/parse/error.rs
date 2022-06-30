@@ -495,6 +495,10 @@ impl TagType for u32 {
     }
 }
 
+/// Scaffolding alias to allow for quick global changes of
+/// what type is used to hold the set of valid tags.
+pub(crate) type Tags<T> = Vec<T>;
+
 /// General-purpose trait for abstracting tag-value validation
 ///
 /// This is used to allow for a more flexible API for the
@@ -538,11 +542,11 @@ where
     /// request, such as when the implementor is a closure type, or
     /// similarly does not offer any direct means of introspecting the
     /// tags it would consider valid, would be to return an empty vector.
-    fn into_valid(self) -> Vec<U>;
+    fn into_valid(self) -> Tags<U>;
 }
 
 pub mod impls {
-    use super::TagValidator;
+    use super::{TagValidator, Tags};
 
     #[inline]
     #[must_use]
@@ -571,7 +575,7 @@ pub mod impls {
                     N > 0
                 }
 
-                fn into_valid(self) -> Vec<$tagtyp> {
+                fn into_valid(self) -> Tags<$tagtyp> {
                     self.to_vec()
                 }
             }
@@ -585,7 +589,7 @@ pub mod impls {
                     N > 0
                 }
 
-                fn into_valid(self) -> Vec<$tagtyp> {
+                fn into_valid(self) -> Tags<$tagtyp> {
                     self.to_vec()
                 }
             }
@@ -596,10 +600,10 @@ pub mod impls {
                 }
 
                 fn has_valid(&self) -> bool {
-                    self.len() > 0
+                    !self.is_empty()
                 }
 
-                fn into_valid(self) -> Vec<$tagtyp> {
+                fn into_valid(self) -> Tags<$tagtyp> {
                     self.to_vec()
                 }
             }
@@ -610,10 +614,10 @@ pub mod impls {
                 }
 
                 fn has_valid(&self) -> bool {
-                    self.len() > 0
+                    !self.is_empty()
                 }
 
-                fn into_valid(self) -> Vec<$tagtyp> {
+                fn into_valid(self) -> Tags<$tagtyp> {
                     self
                 }
             }
@@ -624,11 +628,25 @@ pub mod impls {
                 }
 
                 fn has_valid(&self) -> bool {
-                    self.len() > 0
+                    !self.is_empty()
                 }
 
-                fn into_valid(self) -> Vec<$tagtyp> {
+                fn into_valid(self) -> Tags<$tagtyp> {
                     self.clone()
+                }
+            }
+
+            impl TagValidator<$tagtyp> for std::collections::HashSet<$tagtyp> {
+                fn is_valid(&self, raw: $tagtyp) -> bool {
+                    self.contains(&raw)
+                }
+
+                fn has_valid(&self) -> bool {
+                    !self.is_empty()
+                }
+
+                fn into_valid(self) -> Tags<$tagtyp> {
+                    self.into_iter().collect::<Tags<$tagtyp>>()
                 }
             }
         };
@@ -659,7 +677,7 @@ mod private {
 pub struct TagError<T: TagType> {
     actual: T,
     for_type: &'static str,
-    expected: Option<Vec<T>>,
+    expected: Option<Tags<T>>,
 }
 
 impl<T: TagType> From<TagError<T>> for ParseError {
@@ -674,7 +692,7 @@ where
 {
     /// Constructs a `TagError<T>` value with the provided type-name `for_type` and
     /// set of valid values `expected`
-    pub fn new(actual: T, for_type: &'static str, expected: Option<Vec<T>>) -> Self {
+    pub fn new(actual: T, for_type: &'static str, expected: Option<Tags<T>>) -> Self {
         Self {
             actual,
             for_type,
@@ -684,7 +702,7 @@ where
 
     /// Constructs a `TagError<T>` from the invalid tag value and a list of valid tag-values,
     /// using an inferred type-name via [`Any::type_name`](std::any::Any::type_name)
-    pub fn with_type<U>(actual: T, expected: Option<Vec<T>>) -> Self
+    pub fn with_type<U>(actual: T, expected: Option<Tags<T>>) -> Self
     where U: std::any::Any
     {
         Self {
