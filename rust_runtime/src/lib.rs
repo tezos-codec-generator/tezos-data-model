@@ -66,6 +66,7 @@ pub mod hexstring;
 pub mod int;
 mod internal;
 pub mod parse;
+pub mod prelude;
 pub mod prim;
 pub mod schema;
 pub mod zarith;
@@ -78,7 +79,7 @@ pub use crate::conv::{
     Decode, Encode,
 };
 pub use crate::dynamic::{Dynamic, VPadded};
-pub use crate::fixed::{bytestring::ByteString, charstring::CharString};
+pub use crate::fixed::{bytes::FixedBytes, string::FixedString};
 pub use crate::float::RangedFloat;
 pub use crate::hexstring::HexString;
 pub use crate::int::{i31, u30, RangedInt};
@@ -86,8 +87,12 @@ pub use crate::parse::{
     byteparser::ByteParser, error::ParseError, memoparser::MemoParser, sliceparser::SliceParser,
     ParseResult, Parser, TryIntoParser,
 };
-pub use crate::schema::{Bytes, FixSeq, LimSeq, Nullable, Padded, Sequence};
+pub use crate::schema::{
+    seq::{fix::FixSeq, lim::LimSeq, Sequence},
+    Bytes, Nullable, Padded,
+};
 pub use crate::zarith::{n::N, z::Z};
+pub use prelude::{ByteString, CharString};
 
 pub use ::decode_derive::Decode;
 pub use ::encode_derive::Encode;

@@ -1,7 +1,5 @@
-use crate::conv::target::Target;
-use crate::conv::{Decode, Encode};
-use crate::parse::ParseResult;
-use crate::Parser;
+use crate::conv::{target::Target, Decode, Encode};
+use crate::parse::{memoparser::MemoParser, ParseResult, Parser, TryIntoParser};
 
 impl Encode for () {
     fn write_to<U: Target>(&self, _: &mut U) -> usize {
@@ -15,40 +13,48 @@ impl Encode for () {
         U::create()
     }
 
+    #[inline(always)]
     fn to_bytes(&self) -> Vec<u8> {
         Vec::new()
     }
 }
 
 impl Decode for () {
+    #[inline]
     fn parse<P: Parser>(_: &mut P) -> ParseResult<()> {
         Ok(())
     }
 
-    #[cfg(not(feature = "check_parser_on_drop"))]
-    fn try_decode<U, P>(_: U) -> ParseResult<()>
+    fn try_decode<U, P>(_inp: U) -> crate::conv::error::DecodeResult<()>
     where
         Self: Sized,
         P: Parser,
-        U: crate::TryIntoParser<P>,
+        U: TryIntoParser<P>,
+        crate::conv::error::DecodeError: From<U::Error>,
     {
+        #[cfg(feature = "check_complete_parse")]
+        {
+            let p: P = _inp.try_into_parser()?;
+            match p.cleanup() {
+                Ok(res) => {
+                    if res.is_empty() {
+                        Ok(())
+                    } else {
+                        Err(crate::conv::error::DecodeError::NonEmpty(res))
+                    }
+                }
+                Err(inv) => Err(crate::conv::error::DecodeError::Invariant(inv)),
+            }
+        }
+        #[cfg(not(feature = "check_complete_parse"))]
         Ok(())
-    }
-
-    #[cfg(feature = "check_parser_on_drop")]
-    fn try_decode<U, P>(inp: U) -> ParseResult<()>
-    where
-        Self: Sized,
-        P: Parser,
-        U: crate::parse::TryIntoParser<P>,
-    {
-        inp.into_parser()?
     }
 
     fn decode_memo<U>(inp: U) -> Self
     where
         Self: Sized,
-        U: crate::TryIntoParser<crate::parse::memoparser::MemoParser>,
+        U: TryIntoParser<MemoParser>,
+        crate::conv::error::DecodeError: From<U::Error>,
     {
         Self::try_decode(inp).unwrap_or_else(|_| {
             panic!(
@@ -61,7 +67,8 @@ impl Decode for () {
     fn decode<U>(inp: U) -> Self
     where
         Self: Sized,
-        U: crate::TryIntoParser,
+        U: TryIntoParser,
+        crate::conv::error::DecodeError: From<U::Error>,
     {
         Self::try_decode(inp).unwrap_or_else(|err| {
             panic!(

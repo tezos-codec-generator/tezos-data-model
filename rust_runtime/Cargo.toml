@@ -11,8 +11,7 @@ path = "src/lib.rs"
 bench = false
 
 [features]
-check_parser_on_drop = []
-panic_on_incomplete_parse = ["check_parser_on_drop"]
+check_complete_parse = []
 arrayvec_fixseq = ["arrayvec"]
 arrayvec_limseq = ["arrayvec"]
 enc_len_estimable_override = []
@@ -22,7 +21,6 @@ check_padding = []
 index_binary_formatting = []
 unfreeze_spanbuffer = []
 smallvec_framestack = ["smallvec"]
-deref_sequence = []
 
 [dependencies]
 lazy_static = "1.4.0"

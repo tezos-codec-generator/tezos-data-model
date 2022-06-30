@@ -106,6 +106,7 @@ pub trait Parser {
     ///
     /// Even if it can be implemented directly,
     /// this should always return the same value as computing `self.len() - self.offset()`
+    #[inline]
     fn remainder(&self) -> usize {
         self.view_len() - self.offset()
     }
@@ -147,17 +148,36 @@ pub trait Parser {
     /// It should return true if and only if `self.reminder() == 0` and there is at least one unclosed context window.
     fn test_target(&mut self) -> ParseResult<bool>;
 
-    /// Attempts to close the current context-window.
+    /// Attempt to close the current context-window.
     ///
-    /// This method must fail when there are no context windows left unclosed,
-    /// or when there is at least one byte remaining in the current context window.
+    /// Returns `Ok(())` if the target was successfully enforced, and the corresponding
+    /// open context-window was closed.
     ///
-    /// It is considered impossible for `enforce_target` to encounter a situation in
-    /// which the offset has advanced beyond the current context window, though such
-    /// a case may be tested for by implementors.
+    /// # Errors
+    ///
+    /// If there are no open context-windows when this method is called, this
+    /// method must always return
+    /// `Err(Window(WindowError::CloseWithoutWindow))`.
+    ///
+    /// If there are any unconsumed bytes in the current context-window when
+    /// this method is called, this method must always return
+    /// `Err(Window(WindowError::CloseWithResidue))`
+    ///
+    /// Otherwise, the only acceptable error to return is
+    /// `Err(Window(WindowError::OffsetOverflow))`, although it is expected that
+    /// this case should never occur in a sound implementation.
     fn enforce_target(&mut self) -> ParseResult<()>;
 
     /// Consumes `N` bytes and returns them in array-form
+    ///
+    /// # Errors
+    ///
+    /// This method will propogate any errors from the internal call
+    /// to [`consume`], and should not otherwise return any errors.
+    ///
+    /// Though doing so would be indicative of an implementatin bug, it is
+    /// also technically possible for this method to return
+    /// `Err(External(ExternalError::SliceCoerceFailure(_)))`
     fn consume_arr<const N: usize>(&mut self) -> ParseResult<[u8; N]> {
         error::coerce_slice(self.consume(N)?)
     }
@@ -168,7 +188,9 @@ pub trait Parser {
         self.consume_byte()
     }
 
-    /// Consumes one byte and returns it as an `i8` value
+    /// Consumes one byte and returns it as an `i8` value.
+    ///
+    /// Equivalent to `self.take_u8().map(|x| x as i8)`
     #[inline]
     fn take_i8(&mut self) -> ParseResult<i8> {
         Ok(self.consume_byte()? as i8)
@@ -197,7 +219,7 @@ pub trait Parser {
     /// Consumes four bytes and returns the corresponding `u32` value
     ///
     /// As with all `take_uX` and `take_iX` methods, this method performs
-    /// the coercion as big-endian.
+    /// big-endian conversion from `[u8; _]` to the multi-byte integral type.
     #[inline]
     fn take_u32(&mut self) -> ParseResult<u32> {
         self.consume_arr::<4>().map(u32::from_be_bytes)
@@ -205,9 +227,8 @@ pub trait Parser {
 
     /// Consumes four bytes and returns the corresponding `i32` value
     ///
-    /// As with all fixed-width numeric `take_X` methods, this method performs
-    /// an implicitly big-endian conversion with respect to the individual bytes
-    /// consumed.
+    /// As with all `take_uX` and `take_iX` methods, this method performs
+    /// big-endian conversion from `[u8; _]` to the multi-byte integral type.
     #[inline]
     fn take_i32(&mut self) -> ParseResult<i32> {
         self.consume_arr::<4>().map(i32::from_be_bytes)
@@ -215,9 +236,8 @@ pub trait Parser {
 
     /// Consumes eight bytes and returns the corresponding `u64` value
     ///
-    /// As with all fixed-width numeric `take_X` methods, this method performs
-    /// an implicitly big-endian conversion with respect to the individual bytes
-    /// consumed.
+    /// As with all `take_uX` and `take_iX` methods, this method performs
+    /// big-endian conversion from `[u8; _]` to the multi-byte integral type.
     #[inline]
     fn take_u64(&mut self) -> ParseResult<u64> {
         self.consume_arr::<8>().map(u64::from_be_bytes)
@@ -225,9 +245,8 @@ pub trait Parser {
 
     /// Consumes eight bytes and returns the corresponding `f64` value
     ///
-    /// As with all fixed-width numeric `take_X` methods, this method performs
-    /// an implicitly big-endian conversion with respect to the individual bytes
-    /// consumed.
+    /// As with all `take_uX` and `take_iX` methods, this method performs
+    /// big-endian conversion from `[u8; _]` to the multi-byte integral type.
     #[inline]
     fn take_f64(&mut self) -> ParseResult<f64> {
         self.consume_arr::<8>().map(f64::from_be_bytes)
@@ -236,7 +255,7 @@ pub trait Parser {
     /// Consumes eight bytes and returns the corresponding `i64` value
     ///
     /// As with all `take_uX` and `take_iX` methods, this method performs
-    /// the coercion as big-endian.
+    /// big-endian conversion from `[u8; _]` to the multi-byte integral type.
     #[inline]
     fn take_i64(&mut self) -> ParseResult<i64> {
         self.consume_arr::<8>().map(i64::from_be_bytes)
@@ -250,16 +269,17 @@ pub trait Parser {
     ///
     /// # Errors
     ///
-    /// If the consume operation itself fails, returns the original errors.
+    /// Will propogate any error returned by the internal consume method call.
     ///
-    /// Otherwise, returns `InvalidBoolean` containing the invalid byte,
-    /// wrapped suitably as a `ParseError`
+    /// In addition, will return a
+    /// [`TokenError::InvalidBoolean`](crate::parse::error::TokenError::InvalidBoolean)
+    /// the invalid byte, wrapped suitably as a `ParseError`
     #[inline]
     fn take_bool(&mut self) -> ParseResult<bool> {
         match self.consume_byte()? {
             0xff => Ok(true),
             0x00 => Ok(false),
-            byte => Err(ParseError::TokenError(TokenError::InvalidBoolean(byte))),
+            byte => Err(ParseError::Token(TokenError::InvalidBoolean(byte))),
         }
     }
 
@@ -289,13 +309,13 @@ pub trait Parser {
         if v.is_valid(actual) {
             Ok(actual)
         } else if v.has_valid() {
-            Err(<U as error::TagType>::promote(TagError::new(
+            Err(U::promote(TagError::new(
                 actual,
                 std::any::type_name::<T>(),
                 Some(v.into_valid()),
             )))
         } else {
-            Err(ParseError::InternalError(InternalError::NoValidTags))
+            Err(ParseError::Internal(InternalError::NoValidTags))
         }
     }
 
@@ -311,8 +331,7 @@ pub trait Parser {
 
     /// Consumes and returns an array of the constant length `N`
     ///
-    /// The default implementation is a call to [`consume_arr`]
-    #[inline]
+    /// The default implementation is a bare call to [`consume_arr`]
     fn take_fixed<const N: usize>(&mut self) -> ParseResult<[u8; N]> {
         self.consume_arr::<N>()
     }
@@ -345,307 +364,66 @@ pub trait Parser {
             }
         }
     }
+
+    /// Validates and returns a representation of the final state of a `Parser` object.
+    ///
+    /// The receiver is passed in by value, so that this method acts in place of an
+    /// implicit [`drop`] when it leaves scope.
+    ///
+    /// Unless any invariants on the `Parser` object fail, will return `Ok(residue)`,
+    /// where `residue` contains any and all unconsumed bytes in the buffer of `self`,
+    /// possibly including windowing information.
+    ///
+    /// # Errors
+    ///
+    /// Will return `Err(_)` if any of the internal method-calls on `self`
+    /// return an unexpected error; namely, any error that indicates that either
+    /// the state of the `Parser` is somehow malformed, or certain methods might
+    /// have implementation bugs.
+    fn cleanup(self) -> cleanup::CleanupResult;
 }
 
-pub mod buffer {
-    //! Common buffer types for `Parser` implementors
-    //!
-    //! This module defines the common low-level buffer types
-    //! used internally by the provided implementors of the
-    //! [`Parser`] trait.
-    //!
-    //! Currently, this includes [`SliceBuffer<'a>`], for `SliceParser<'a>`,
-    //! and [`VecBuffer`] for [`ByteParser`].
-    //!
-    //! [`Parser`]: crate::parse::Parser
-
-    use crate::hexstring::HexString;
-
-    /// Newtype around a lifetime-annotated immutable slice `&'a [u8]`
-    ///
-    /// There is no overwhelming motivation for a full newtype,
-    /// other than to prevent overlapping instances for different interpretations
-    /// of what sort of role `&[u8]` plays in the context of the runtime.
-    ///
-    /// In this case, `ByteSlice` is explicitly used only as the buffer type for
-    /// a slice-based [`Parser`], and is not to be used in place of `&'a [u8]` in
-    /// any other context.
-    #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-    #[repr(transparent)]
-    pub struct SliceBuffer<'a>(&'a [u8]);
-
-    impl SliceBuffer<'_> {
-        /// Creates an explicitly static `SliceBuffer` from a static slice
-        pub const fn from_static(slice: &'static [u8]) -> SliceBuffer<'static> {
-            SliceBuffer(slice)
-        }
-    }
-
-    impl<'a> SliceBuffer<'a> {
-        /// Extracts a copy of the internal `&'a [u8]` of a borrowed `SliceBuffer`
-        ///
-        /// Aside from signature, this is identical to [`into_slice`].
-        pub const fn as_slice(&self) -> &'a [u8] {
-            self.0
-        }
-
-        /// Destructs `self` and returns the `&'a [u8]` it contained
-        ///
-        /// Aside from signature, this is identical to [`as_slice`].
-        pub const fn into_slice(self) -> &'a [u8] {
-            self.0
-        }
-
-        /// Returns `true` if the `SliceBuffer` has a length of 0
-        pub const fn is_empty(&self) -> bool {
-            self.0.is_empty()
-        }
-
-        /// Returns the number of bytes in a `SliceBuffer`.
-        #[inline]
-        pub const fn len(&self) -> usize {
-            self.0.len()
-        }
-
-        /// Creates a `SliceBuffer<'a>` from a slice of type `&'a [u8]`
-        pub const fn new(slice: &'a [u8]) -> Self {
-            Self(slice)
-        }
-
-        /// Attempt to extract the first byte of a `SliceBuffer`, returning
-        /// both the extracted element and the remainder of the buffer.
-        ///
-        /// Returns `None` if the `SliceBuffer` is empty
-        pub const fn cut_first(&self) -> Option<(u8, Self)> {
-            if let [first, tail @ ..] = self.0 {
-                Some((*first, Self(tail)))
-            } else {
-                None
-            }
-        }
-
-        /// Splits off the head byte of a `ByteSlice` without checking that it is non-empty
-        ///
-        /// # Safety
-        ///
-        /// Calling this method on an empty `ByteSlice` is *[undefined behavior]*.
-        ///
-        /// [undefined behavior]: https://doc.rust-lang.org/reference/behavior-considered-undefined.html
-        pub unsafe fn cut_first_unchecked(&self) -> (u8, Self) {
-            (*self.0.get_unchecked(0), Self(self.0.get_unchecked(1..)))
-        }
-
-        /// Splits a `ByteSlice` into the segments containing indices `[0..mid]` and `[mid..]`,
-        /// as `ByteSlice`
-        ///
-        /// This function should behave no differently from [`split_at`][splitat]
-        ///
-        /// [splitat]: https://doc.rust-lang.org/stable/std/primitive.slice.html#method.split_at
-        pub fn split(&self, mid: usize) -> (Self, Self) {
-            assert!(mid <= self.len());
-            unsafe { self.split_unchecked(mid) }
-        }
-
-        /// Splits a `ByteSlice` into the segments containing indices `[0..mid]` and `[mid..]`,
-        /// as `ByteSlice`, without doing any bounds-checking.
-        ///
-        /// This is equivalent to [`take_unchecked`] with a wrapped first return value
-        ///
-        /// # Safety
-        ///
-        /// Calling this method with `n > self.len()` is *[undefined behavior]*
-        /// even if the return value is unused.
-        ///
-        /// [undefined behavior]: https://doc.rust-lang.org/reference/behavior-considered-undefined.html
-        pub unsafe fn split_unchecked(&self, mid: usize) -> (Self, Self) {
-            (
-                Self(self.0.get_unchecked(..mid)),
-                Self(self.0.get_unchecked(mid..)),
-            )
-        }
-
-        /// Extracts the first `N` indices of a `ByteSlice` and return them
-        /// as a slice, along with the remainder as a `ByteSlice`
-        ///
-        /// This function is only `unsafe` because it does not itself perform
-        /// any slice-length bound-checking and will therefore panic as normal
-        /// when the number of indices to take exceeds the number of indices
-        /// in the slice itself.
-        pub fn take(&self, n: usize) -> (&'a [u8], Self) {
-            assert!(n <= self.len());
-            unsafe { self.take_unchecked(n) }
-        }
-
-        /// Extracts the first `len` indices of a `ByteSlice` unwrapped,
-        /// along with the remainder as a `ByteSlice`, without
-        /// doing bounds-checking.
-        ///
-        /// For a safe alternative see [`take`]
-        ///
-        /// # Safety
-        ///
-        /// Calling this method with `n > self.len()` is *[undefined behavior]*
-        /// even if the return value is unused.
-        ///
-        /// [undefined behavior]: https://doc.rust-lang.org/reference/behavior-considered-undefined.html
-        pub unsafe fn take_unchecked(&self, n: usize) -> (&'a [u8], Self) {
-            (self.0.get_unchecked(..n), Self(self.0.get_unchecked(n..)))
-        }
-    }
-
-    impl<'a> From<&'a [u8]> for SliceBuffer<'a> {
-        #[inline]
-        fn from(bytes: &'a [u8]) -> Self {
-            Self(bytes)
-        }
-    }
-
-    /// Newtype around `Vec<u8>` that only permits immutable access
-    ///
-    /// This newtype is used to allow for explicit signalling of intended role for
-    /// the use of `Vec<u8>` as the underlying, immutable buffer of a [`ByteParser`]
-    /// or equivalent-model `Parser` implementation.
-    ///
-    /// The contents of a `VecBuffer` are not mutated by any of the inherent methods
-    /// defined in this module.
-    ///
-    /// [`ByteParser`]: crate::parse::byteparser::ByteParser
-    #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-    #[repr(transparent)]
-    pub struct VecBuffer(Vec<u8>);
-
-    impl VecBuffer {
-        /// Returns the number of bytes in a `VecBuffer`
-        pub fn len(&self) -> usize {
-            self.0.len()
-        }
-
-        /// Returns `true` if the buffer contains zero bytes
-        pub fn is_empty(&self) -> bool {
-            self.0.is_empty()
-        }
-
-        /// Borrows a range of bytes starting at index `ix`, of length `len`,
-        /// without bounds-checking.
-        ///
-        /// # Safety
-        ///
-        /// Calling this method when `[ix..ix + len]` is not in-bounds is
-        /// *[undefined behavior]* even if the return value is not used.
-        ///
-        /// [undefined behavior]: https://doc.rust-lang.org/reference/behavior-considered-undefined.html
-        pub unsafe fn get_slice_unchecked(&self, ix: usize, len: usize) -> &[u8] {
-            self.0.get_unchecked(ix..ix + len)
-        }
-
-        /// Borrows a range of bytes starting at index `ix`, of length `len`.
-        ///
-        /// # Panics
-        ///
-        /// Will panic if `ix + len` is out-of-bounds
-        pub fn get_slice(&self, ix: usize, len: usize) -> &[u8] {
-            assert!(ix + len <= self.len());
-            unsafe { self.get_slice_unchecked(ix, len) }
-        }
-
-        /// Returns the byte at the specified index without checking that it is in-bounds.
-        ///
-        /// # Safety
-        ///
-        /// Calling this method with an out-of-bonds index is
-        /// *[undefined behavior]* even if the return value is not used.
-        ///
-        /// [undefined behavior]: https://doc.rust-lang.org/reference/behavior-considered-undefined.html
-        pub unsafe fn get_byte_unchecked(&self, ix: usize) -> u8 {
-            *self.0.get_unchecked(ix)
-        }
-
-        /// Returns the byte at the specified index,
-        ///
-        /// # Panics
-        ///
-        /// Will panic if the `ix` is out-of-bounds
-        pub fn get_byte(&self, ix: usize) -> u8 {
-            assert!(ix <= self.len());
-            unsafe { self.get_byte_unchecked(ix) }
-        }
-    }
-
-    impl std::fmt::Debug for VecBuffer {
-        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            <Vec<u8> as std::fmt::Debug>::fmt(&self.0, f)
-        }
-    }
-
-    impl From<&[u8]> for VecBuffer {
-        fn from(bytes: &[u8]) -> Self {
-            Self(bytes.to_owned())
-        }
-    }
-
-    impl From<Vec<u8>> for VecBuffer {
-        fn from(bytes: Vec<u8>) -> Self {
-            Self(bytes)
-        }
-    }
-
-    impl<const N: usize> From<[u8; N]> for VecBuffer {
-        fn from(bytes: [u8; N]) -> Self {
-            Self(bytes.to_vec())
-        }
-    }
-
-    impl<const N: usize> From<&'_ [u8; N]> for VecBuffer {
-        fn from(bytes: &'_ [u8; N]) -> Self {
-            Self(bytes.to_vec())
-        }
-    }
-
-    impl From<HexString> for VecBuffer {
-        fn from(hex: HexString) -> Self {
-            Self(hex.into_vec())
-        }
-    }
-
-    macro_rules! string_to_vecbuffer {
-        ( $src:ty ) => {
-            #[cfg(feature = "implicit_hexstring")]
-            impl std::convert::TryFrom<$src> for $crate::parse::buffer::VecBuffer
-            where
-                $crate::hexstring::HexString: std::convert::TryFrom<$src>,
-                Self: From<$crate::hexstring::HexString>,
-            {
-                type Error = <$crate::hexstring::HexString as std::convert::TryFrom<$src>>::Error;
-
-                fn try_from(s: $src) -> Result<Self, Self::Error> {
-                    Ok(<HexString as TryFrom<$src>>::try_from(s)?.into())
-                }
-            }
-
-            #[cfg(not(feature = "implicit_hexstring"))]
-            impl From<$src> for $crate::parse::buffer::VecBuffer {
-                fn from(s: $src) -> Self {
-                    Self(s.as_bytes().to_owned())
-                }
-            }
-        };
-    }
-
-    string_to_vecbuffer!(&'_ str);
-    string_to_vecbuffer!(String);
-    string_to_vecbuffer!(&'_ String);
-    string_to_vecbuffer!(std::borrow::Cow<'_, str>);
-}
+pub mod buffer;
 
 pub mod cleanup {
-    #[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
+    //! End-of-lifetime cleanup for `Parser` objects
+    //!
+    //! This module provides the necessary logic to allow for invariant-checking
+    //! on leftover state of `Parser` that would be unsound or unwise to perform
+    //! in the [`Drop::drop`] implementation.
+    //!
+    //! This module defines the `LeftoverState` type that represents the
+    //! context-preserving unconsumed portion of a to-be-discarded `Parser`
+    //! value. It also defines the error-type `InvariantError`, which
+    //! encapsulates any unanticipated errors returned while processing
+    //! the leftover state of the `Parser` object in question.
+
+    use crate::internal::splitvec::SplitVec;
+
+    /// Residual state of a `Parser` type before it was dropped
+    ///
+    /// Preserves a record of the context windows open on the object
+    /// it was constructed from.
+    #[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
     pub enum LeftoverState {
+        /// Variant representing parsers with no open context windows
+        /// and no residual (unconsumed) bytes
         Empty,
+        /// Variant representing parsers with no open context windows,
+        /// but almost certainly at least one residual (unconsumed) byte.
+        ///
+        /// It is techincally possible for [`Windowless`] to contain
+        /// zero bytes, but this is an incoherent state, and should
+        /// not normally be produced.
         Windowless(Vec<u8>),
-        Windowed(crate::internal::splitvec::SplitVec<u8>),
+        /// Variant representing parsers with at least one open context
+        /// window, but which may or may not have any residual (unconsumed)
+        /// bytes.
+        Windowed(SplitVec<u8>),
     }
 
     impl std::default::Default for LeftoverState {
+        /// Returns the default value of [`Empty`]
         #[inline]
         fn default() -> Self {
             Self::Empty
@@ -653,11 +431,17 @@ pub mod cleanup {
     }
 
     impl LeftoverState {
-        #[inline]
+        // Returns a new `LeftoverState` value, initially [`Empty`]
+        #[inline(always)]
         pub fn new() -> Self {
             Self::Empty
         }
 
+        /// Moves the bytes stored in `other` into `self`, promoting from
+        /// [`Empty`] to [`Windowed`] and otherwise acting directly on the held
+        /// value of each variant.
+        ///
+        /// After this call, `other` is left empty.
         #[inline]
         pub fn append(&mut self, other: &mut Vec<u8>) {
             match self {
@@ -669,35 +453,73 @@ pub mod cleanup {
             }
         }
 
-        pub(super) unsafe fn take_vec(&mut self) -> Vec<u8> {
+        /// Returns a mutable reference to the `SplitVec<u8>` contained within
+        /// a [`Windowed`] variant, without modifying `self` directly.
+        ///
+        /// # Safety
+        ///
+        /// This function is designed and optimized around the promise
+        /// that it will only ever be called on `Windowed` variants.
+        /// Calling this method on any other variant is ***undefined
+        /// behavior*** and should only ever be called when there is
+        /// an absolute guarantee that the variant held by the receiver
+        /// at call-time is `Windowed`.
+        #[must_use]
+        unsafe fn get_mut_windows_unchecked(&mut self) -> &mut SplitVec<u8> {
+            if let Self::Windowed(ref mut sbuf) = self {
+                sbuf
+            } else {
+                std::hint::unreachable_unchecked()
+            }
+        }
+
+        /// Extracts the `Vec<u8>` stored in a [`Windowless`] variant,
+        /// leaving [`Empty`] behind in `self`.
+        ///
+        /// # Safety
+        ///
+        /// This function is designed and optimized around the promise
+        /// that it will only ever be called on `Windowless` variants.
+        /// Calling this method on any other variant is ***undefined
+        /// behavior*** and should only ever be called when there is
+        /// an absolute guarantee that the variant held by the receiver
+        /// at call-time is `Windowless`.
+        #[must_use]
+        unsafe fn take_vec_unchecked(&mut self) -> Vec<u8> {
             let mut tmp = Self::Empty;
             std::mem::swap(self, &mut tmp);
-            if let Self::Windowless(ret) = tmp {
-                ret
+            if let Self::Windowless(buf) = tmp {
+                buf
             } else {
-                unreachable!()
+                std::hint::unreachable_unchecked()
             }
         }
 
-        pub fn escape_context(&mut self) {
+        fn promote(&mut self) -> &mut SplitVec<u8> {
             match self {
                 LeftoverState::Empty => {
-                    let mut svec = crate::internal::SplitVec::new();
-                    svec.split_force();
-                    *self = Self::Windowed(svec)
+                    *self = Self::Windowed(SplitVec::new());
                 }
-                LeftoverState::Windowless(_) => {
-                    let buf = unsafe { self.take_vec() };
-                    let mut svec = crate::internal::SplitVec::from_vec(buf);
-                    svec.split_force();
-                    *self = Self::Windowed(svec)
+                &mut LeftoverState::Windowless(_) => {
+                    *self =
+                        Self::Windowed(SplitVec::from_vec(unsafe { self.take_vec_unchecked() }));
                 }
-                LeftoverState::Windowed(ref mut svec) => {
-                    svec.split_force();
-                }
+                LeftoverState::Windowed(_) => {}
             }
+            unsafe { self.get_mut_windows_unchecked() }
         }
 
+        #[inline]
+        pub fn escape_context(&mut self) {
+            self.promote().split_force();
+        }
+
+        /// Returns `true` when `self` contains no leftover bytes
+        ///
+        /// This usually applies only for the [`Empty`] constructor,
+        /// but for completeness, [`Windowed`] and [`Windowless`]
+        /// constructors that contain no bytes also yield `true`.
+        #[inline]
         pub fn is_empty(&self) -> bool {
             match self {
                 LeftoverState::Empty => true,
@@ -706,13 +528,47 @@ pub mod cleanup {
                 LeftoverState::Windowless(buf) => buf.is_empty(),
             }
         }
+
+        /// Returns the number of leftover bytes stored in `self`, irrespective
+        /// of windowing
+        ///
+        /// Returns `0` for [`Empty`], and otherwise returns the number of bytes
+        /// in a `Windowed` or `Windowless` variant.
+        #[inline]
+        pub fn len(&self) -> usize {
+            match self {
+                LeftoverState::Empty => 0,
+                LeftoverState::Windowless(v) => v.len(),
+                LeftoverState::Windowed(sv) => sv.len(),
+            }
+        }
     }
 
-    #[derive(Debug, Clone, PartialEq)]
+    #[derive(Clone)]
     pub enum InvariantError {
         ErrorCaseUnexpected(super::error::WindowError),
         ErrorKindUnexpected(super::error::ParseError),
         ErrorUnexpected(super::error::ParseError),
+    }
+
+    impl std::fmt::Debug for InvariantError {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            match self {
+                Self::ErrorCaseUnexpected(err) => {
+                    write!(f, "unexpected WindowError variant encountered: {:?}", err)
+                }
+                Self::ErrorKindUnexpected(err) => {
+                    write!(
+                        f,
+                        "error of unexpected kind (non-WindowError) encountered: {:?}",
+                        err
+                    )
+                }
+                Self::ErrorUnexpected(err) => {
+                    write!(f, "unexpected error encountered: {:?}", err)
+                }
+            }
+        }
     }
 
     impl std::fmt::Display for InvariantError {
@@ -731,9 +587,17 @@ pub mod cleanup {
         }
     }
 
-    impl std::error::Error for InvariantError {}
+    impl std::error::Error for InvariantError {
+        fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+            match self {
+                InvariantError::ErrorCaseUnexpected(err) => Some(err),
+                InvariantError::ErrorKindUnexpected(err) => Some(err),
+                InvariantError::ErrorUnexpected(err) => Some(err),
+            }
+        }
+    }
 
-    pub type ParserStatus = std::result::Result<LeftoverState, InvariantError>;
+    pub type CleanupResult = std::result::Result<LeftoverState, InvariantError>;
 }
 
 macro_rules! impl_iterator_parser {
@@ -754,7 +618,7 @@ pub mod byteparser {
     use crate::internal::offset::{ContextOffset, IndexTracker};
 
     use super::buffer::VecBuffer;
-    use super::cleanup::{InvariantError, LeftoverState, ParserStatus};
+    use super::cleanup::{CleanupResult, InvariantError, LeftoverState};
     use super::error::{ParseError, ParseResult};
     use super::Parser;
 
@@ -762,49 +626,6 @@ pub mod byteparser {
     pub struct ByteParser {
         buffer: VecBuffer,
         offset: ContextOffset,
-    }
-
-    impl ByteParser {
-        pub fn cleanup(mut self) -> ParserStatus {
-            use crate::parse::error::*;
-
-            let mut ret = Ok(LeftoverState::new());
-
-            loop {
-                let res = self.remainder();
-                if res != 0 {
-                    match self.take_dynamic(res) {
-                        Ok(ref mut tmp) => {
-                            if let Ok(o) = &mut ret {
-                                o.append(tmp)
-                            }
-                        }
-                        Err(e) => {
-                            ret = Err(InvariantError::ErrorUnexpected(e));
-                            break;
-                        }
-                    }
-                }
-                match self.enforce_target() {
-                    Ok(()) => {
-                        if let Ok(o) = &mut ret {
-                            o.escape_context()
-                        }
-                    }
-                    Err(e) => {
-                        if let ParseError::WindowError(w_err) = e {
-                            match w_err {
-                                WindowError::CloseWithoutWindow => break,
-                                _ => ret = Err(InvariantError::ErrorCaseUnexpected(w_err)),
-                            }
-                        } else {
-                            ret = Err(InvariantError::ErrorKindUnexpected(e));
-                        }
-                    }
-                }
-            }
-            ret
-        }
     }
 
     impl Parser for ByteParser {
@@ -838,7 +659,7 @@ pub mod byteparser {
             if adv {
                 Ok(self.buffer.get_byte(ix))
             } else {
-                Err(ParseError::WindowError(
+                Err(ParseError::Window(
                     super::error::WindowError::ConsumeWouldExceedLimit {
                         offset: ix,
                         requested: 1,
@@ -853,7 +674,7 @@ pub mod byteparser {
             if adv {
                 Ok(unsafe { self.buffer.get_slice_unchecked(ix, nbytes) })
             } else {
-                Err(ParseError::WindowError(
+                Err(ParseError::Window(
                     super::error::WindowError::ConsumeWouldExceedLimit {
                         offset: ix,
                         requested: nbytes,
@@ -877,32 +698,11 @@ pub mod byteparser {
         fn enforce_target(&mut self) -> ParseResult<()> {
             self.offset.enforce_target()
         }
-    }
 
-    super::impl_iterator_parser!(ByteParser);
-}
-
-pub mod memoparser {
-    use crate::internal::offset::{ContextOffset, IndexTracker};
-    use crate::internal::splitvec::SplitVec;
-
-    use super::buffer::VecBuffer;
-    use super::cleanup::{InvariantError, LeftoverState, ParserStatus};
-    use super::error::{ParseError, ParseResult};
-    use super::Parser;
-
-    #[derive(Debug)]
-    pub struct MemoParser {
-        buffer: VecBuffer,
-        offset: ContextOffset,
-        munches: Vec<usize>,
-    }
-
-    impl MemoParser {
-        pub fn cleanup(mut self) -> ParserStatus {
+        fn cleanup(mut self) -> CleanupResult {
             use crate::parse::error::*;
 
-            let mut ret = Ok(LeftoverState::new());
+            let mut ret = Ok(LeftoverState::Empty);
 
             loop {
                 let res = self.remainder();
@@ -910,7 +710,7 @@ pub mod memoparser {
                     match self.take_dynamic(res) {
                         Ok(ref mut tmp) => {
                             if let Ok(o) = &mut ret {
-                                o.append(tmp);
+                                o.append(tmp)
                             }
                         }
                         Err(e) => {
@@ -922,11 +722,11 @@ pub mod memoparser {
                 match self.enforce_target() {
                     Ok(()) => {
                         if let Ok(o) = &mut ret {
-                            o.escape_context();
+                            o.escape_context()
                         }
                     }
                     Err(e) => {
-                        if let ParseError::WindowError(w_err) = e {
+                        if let ParseError::Window(w_err) = e {
                             match w_err {
                                 WindowError::CloseWithoutWindow => break,
                                 _ => ret = Err(InvariantError::ErrorCaseUnexpected(w_err)),
@@ -939,6 +739,25 @@ pub mod memoparser {
             }
             ret
         }
+    }
+
+    super::impl_iterator_parser!(ByteParser);
+}
+
+pub mod memoparser {
+    use crate::internal::offset::{ContextOffset, IndexTracker};
+    use crate::internal::splitvec::SplitVec;
+
+    use super::buffer::VecBuffer;
+    use super::cleanup::{CleanupResult, InvariantError, LeftoverState};
+    use super::error::{ParseError, ParseResult};
+    use super::Parser;
+
+    #[derive(Debug)]
+    pub struct MemoParser {
+        buffer: VecBuffer,
+        offset: ContextOffset,
+        munches: Vec<usize>,
     }
 
     macro_rules! eprint_munches {
@@ -955,7 +774,7 @@ pub mod memoparser {
         }};
     }
 
-    impl super::Parser for MemoParser {
+    impl Parser for MemoParser {
         type Buffer = VecBuffer;
 
         /// Create a `MemoParser` from any buffer type, i.e. any type `T` that
@@ -991,7 +810,7 @@ pub mod memoparser {
             } else {
                 let offset = ix;
                 eprint_munches!(self);
-                Err(ParseError::WindowError(
+                Err(ParseError::Window(
                     super::error::WindowError::ConsumeWouldExceedLimit {
                         offset,
                         requested: 1,
@@ -1009,7 +828,7 @@ pub mod memoparser {
             } else {
                 let offset = ix;
                 eprint_munches!(self);
-                Err(ParseError::WindowError(
+                Err(ParseError::Window(
                     super::error::WindowError::ConsumeWouldExceedLimit {
                         offset,
                         requested: nbytes,
@@ -1033,26 +852,10 @@ pub mod memoparser {
         fn enforce_target(&mut self) -> ParseResult<()> {
             self.offset.enforce_target()
         }
-    }
 
-    super::impl_iterator_parser!(MemoParser);
-}
+        fn cleanup(mut self) -> CleanupResult {
+            use crate::parse::error::*;
 
-pub mod sliceparser {
-    use super::buffer::SliceBuffer;
-    use super::cleanup::{InvariantError, LeftoverState, ParserStatus};
-    use super::error::{ParseError, ParseResult, WindowError};
-    use super::Parser;
-    use crate::internal::view::ViewStack;
-    use crate::internal::Stack;
-
-    #[derive(Debug)]
-    pub struct SliceParser<'a> {
-        view_stack: ViewStack<'a>,
-    }
-
-    impl<'a> SliceParser<'a> {
-        pub fn cleanup(mut self) -> ParserStatus {
             let mut ret = Ok(LeftoverState::new());
 
             loop {
@@ -1077,7 +880,7 @@ pub mod sliceparser {
                         }
                     }
                     Err(e) => {
-                        if let ParseError::WindowError(w_err) = e {
+                        if let ParseError::Window(w_err) = e {
                             match w_err {
                                 WindowError::CloseWithoutWindow => break,
                                 _ => ret = Err(InvariantError::ErrorCaseUnexpected(w_err)),
@@ -1090,6 +893,22 @@ pub mod sliceparser {
             }
             ret
         }
+    }
+
+    super::impl_iterator_parser!(MemoParser);
+}
+
+pub mod sliceparser {
+    use super::buffer::SliceBuffer;
+    use super::cleanup::{CleanupResult, InvariantError, LeftoverState};
+    use super::error::{ParseError, ParseResult, WindowError};
+    use super::Parser;
+    use crate::internal::view::ViewStack;
+    use crate::internal::Stack;
+
+    #[derive(Debug)]
+    pub struct SliceParser<'a> {
+        view_stack: ViewStack<'a>,
     }
 
     impl<'a> Parser for SliceParser<'a> {
@@ -1128,7 +947,7 @@ pub mod sliceparser {
 
         fn consume_byte(&mut self) -> ParseResult<u8> {
             match Stack::peek_mut(&mut self.view_stack) {
-                None => Err(ParseError::WindowError(
+                None => Err(ParseError::Window(
                     super::error::WindowError::ConsumeWouldExceedLimit {
                         offset: 0,
                         requested: 1,
@@ -1140,7 +959,7 @@ pub mod sliceparser {
                         *frame = temp;
                         Ok(ret)
                     } else {
-                        Err(ParseError::WindowError(
+                        Err(ParseError::Window(
                             super::error::WindowError::ConsumeWouldExceedLimit {
                                 offset: 0,
                                 requested: 1,
@@ -1154,13 +973,11 @@ pub mod sliceparser {
 
         fn consume(&mut self, nbytes: usize) -> ParseResult<&[u8]> {
             match self.view_stack.peek_mut() {
-                None => Err(ParseError::WindowError(
-                    WindowError::ConsumeWouldExceedLimit {
-                        offset: 0,
-                        requested: nbytes,
-                        limit: 0,
-                    },
-                )),
+                None => Err(ParseError::Window(WindowError::ConsumeWouldExceedLimit {
+                    offset: 0,
+                    requested: nbytes,
+                    limit: 0,
+                })),
                 Some(frame) => {
                     let limit = frame.len();
                     if limit >= nbytes {
@@ -1170,13 +987,11 @@ pub mod sliceparser {
                             Ok(ret)
                         }
                     } else {
-                        Err(ParseError::WindowError(
-                            WindowError::ConsumeWouldExceedLimit {
-                                limit,
-                                requested: nbytes,
-                                offset: 0,
-                            },
-                        ))
+                        Err(ParseError::Window(WindowError::ConsumeWouldExceedLimit {
+                            limit,
+                            requested: nbytes,
+                            offset: 0,
+                        }))
                     }
                 }
             }
@@ -1185,12 +1000,10 @@ pub mod sliceparser {
         fn set_fit(&mut self, n: usize) -> std::result::Result<(), ParseError> {
             match self.view_stack.peek_mut() {
                 None if n == 0 => Ok(()),
-                None => Err(ParseError::WindowError(
-                    WindowError::OpenWouldExceedBuffer {
-                        bytes_left: 0,
-                        request: n,
-                    },
-                )),
+                None => Err(ParseError::Window(WindowError::OpenWouldExceedBuffer {
+                    bytes_left: 0,
+                    request: n,
+                })),
                 Some(frame) => {
                     if frame.len() >= n {
                         unsafe {
@@ -1200,12 +1013,10 @@ pub mod sliceparser {
                             Ok(())
                         }
                     } else {
-                        Err(ParseError::WindowError(
-                            WindowError::OpenWouldExceedWindow {
-                                limit: frame.len(),
-                                request: n,
-                            },
-                        ))
+                        Err(ParseError::Window(WindowError::OpenWouldExceedWindow {
+                            limit: frame.len(),
+                            request: n,
+                        }))
                     }
                 }
             }
@@ -1223,14 +1034,53 @@ pub mod sliceparser {
         fn enforce_target(&mut self) -> ParseResult<()> {
             let _window = self.view_stack.pop();
             match _window {
-                None => Err(ParseError::WindowError(WindowError::CloseWithoutWindow)),
+                None => Err(ParseError::Window(WindowError::CloseWithoutWindow)),
                 Some(_frame) => match _frame.len() {
                     0 => Ok(()),
-                    residual => Err(ParseError::WindowError(WindowError::CloseWithResidue {
+                    residual => Err(ParseError::Window(WindowError::CloseWithResidue {
                         residual,
                     })),
                 },
             }
+        }
+
+        fn cleanup(mut self) -> CleanupResult {
+            let mut ret = Ok(LeftoverState::new());
+
+            loop {
+                let res = self.remainder();
+                if res != 0 {
+                    match self.take_dynamic(res) {
+                        Ok(ref mut tmp) => {
+                            if let Ok(o) = &mut ret {
+                                o.append(tmp);
+                            }
+                        }
+                        Err(e) => {
+                            ret = Err(InvariantError::ErrorUnexpected(e));
+                            break;
+                        }
+                    }
+                }
+                match self.enforce_target() {
+                    Ok(()) => {
+                        if let Ok(o) = &mut ret {
+                            o.escape_context();
+                        }
+                    }
+                    Err(e) => {
+                        if let ParseError::Window(w_err) = e {
+                            match w_err {
+                                WindowError::CloseWithoutWindow => break,
+                                _ => ret = Err(InvariantError::ErrorCaseUnexpected(w_err)),
+                            }
+                        } else {
+                            ret = Err(InvariantError::ErrorKindUnexpected(e));
+                        }
+                    }
+                }
+            }
+            ret
         }
     }
 
@@ -1238,6 +1088,8 @@ pub mod sliceparser {
 }
 
 use byteparser::ByteParser;
+
+use crate::conv::error::DecodeError;
 
 use self::error::TokenError;
 
@@ -1250,6 +1102,8 @@ pub trait TryIntoParser<P = ByteParser>
 where
     P: Parser,
 {
+    type Error: Into<DecodeError>;
+
     /// Attempt to produce a parser object of type `P` over the bytes
     /// represented by `self`.
     ///
@@ -1261,19 +1115,21 @@ where
     /// This is normally only possible when the feature-flag `implicit_hexstring`
     /// is turned on, as otherwise the conversions defined within this library
     /// are all infallible.
-    fn try_into_parser(self) -> ParseResult<P>;
+    fn try_into_parser(self) -> std::result::Result<P, Self::Error>;
 }
 
 impl<P, T> TryIntoParser<P> for T
 where
     P: Parser,
     <P as Parser>::Buffer: TryFrom<T>,
-    <T as TryInto<<P as Parser>::Buffer>>::Error: Into<ParseError>,
+    DecodeError: From<<T as TryInto<<P as Parser>::Buffer>>::Error>,
 {
-    fn try_into_parser(self) -> ParseResult<P> {
+    type Error = <T as TryInto<<P as Parser>::Buffer>>::Error;
+
+    fn try_into_parser(self) -> std::result::Result<P, Self::Error> {
         let buffer = match <<P as Parser>::Buffer as TryFrom<T>>::try_from(self) {
             Ok(x) => x,
-            Err(err) => return Err(err.into()),
+            Err(err) => return Err(err),
         };
         Ok(P::from_buffer(buffer))
     }

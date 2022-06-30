@@ -107,14 +107,14 @@ impl<S: LenPref, T> Dynamic<S, T> {
     ///
     /// If the actual length exceeds the maximum representable value of `S`, a
     /// `ConstraintError` is returned.
-    pub fn length_prefix(&self) -> Result<S, crate::error::ConstraintError>
+    pub fn length_prefix(&self) -> Result<S, crate::error::WidthError>
     where
         T: EncodeLength,
     {
         let actual: usize = <T as EncodeLength>::enc_len(&self.contents);
         let limit: usize = S::max_len();
         if actual > limit {
-            Err(crate::error::ConstraintError::TooManyBytes { limit, actual })
+            Err(crate::error::WidthError::TooWide { limit, actual })
         } else {
             Ok(unsafe { <usize as std::convert::TryInto<S>>::try_into(actual).unwrap_unchecked() })
         }
@@ -368,6 +368,7 @@ impl<S: LenPref, T: Decode> Decode for Dynamic<S, T> {
 /// of type `Padded<_, 0>`, though neither one is expected to appear in codecs as they are fundamentally
 /// indistinguishable from the payload type, and each other, for the purposes of encoding and decoding.
 #[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash, Default)]
+#[repr(transparent)]
 pub struct VPadded<T, const N: usize>(T);
 
 impl<T: Debug, const N: usize> Debug for VPadded<T, N> {

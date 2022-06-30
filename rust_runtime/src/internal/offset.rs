@@ -295,7 +295,7 @@ impl ContextOffset {
         if new_tgt > self.abs {
             let bytes_left = self.abs - winsize;
             let request = winsize;
-            Err(ParseError::WindowError(
+            Err(ParseError::Window(
                 WindowError::OpenWouldExceedBuffer {
                     bytes_left,
                     request,
@@ -320,7 +320,7 @@ impl ContextOffset {
         if let Some(tgt) = self.frames.peek() {
             match tgt.cmp(&cur) {
                 std::cmp::Ordering::Less => {
-                    Err(ParseError::WindowError(WindowError::OffsetOverflow {
+                    Err(ParseError::Window(WindowError::OffsetOverflow {
                         excess: cur - tgt,
                     }))
                 }
@@ -338,16 +338,16 @@ impl ContextOffset {
         let cur: usize = self.index();
 
         match self.frames.pop() {
-            None => Err(ParseError::WindowError(WindowError::CloseWithoutWindow)),
+            None => Err(ParseError::Window(WindowError::CloseWithoutWindow)),
             Some(tgt) => match tgt.cmp(&cur) {
                 std::cmp::Ordering::Less => {
-                    Err(ParseError::WindowError(WindowError::OffsetOverflow {
+                    Err(ParseError::Window(WindowError::OffsetOverflow {
                         excess: cur - tgt,
                     }))
                 }
                 std::cmp::Ordering::Equal => Ok(()),
                 std::cmp::Ordering::Greater => {
-                    Err(ParseError::WindowError(WindowError::CloseWithResidue {
+                    Err(ParseError::Window(WindowError::CloseWithResidue {
                         residual: tgt - cur,
                     }))
                 }

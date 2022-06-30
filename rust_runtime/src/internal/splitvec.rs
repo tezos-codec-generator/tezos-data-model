@@ -27,15 +27,17 @@ mod spanbuffer {
     /// a `SpanBuffer` contains the segmentation information of a `SplitVec<T>`.
     ///
     /// A `SpanBuffer` consists of a heap-allocated buffer of 'frozen' span-lengths, which may
-    /// also be referred to individually as 'finalized, or in aggregate as 'stable'.
+    /// also be referred to individually as 'finalized', or in aggregate as 'stable'.
     /// This internal buffer starts out empty, and only changes when an unfrozen span-length,
     /// also known as the 'active' or 'current' span-length, is frozen, at which point it is
-    /// appended to this stable buffer.
+    /// appended to this buffer.
     ///
     /// At any point, at most one span-length can be unfrozen. This is because a `SplitVec<T>`
-    /// is an append-only buffer, and so a span-length, once frozen, will never change, and
-    /// the addition of new elements to the `SplitVec<T>` will only ever consist of append
-    /// operations.
+    /// is an append-only buffer, and so a span-length, once frozen, will never change;
+    /// the only way that new elements are inserted into a `SplitVec<T>` is by appending them,
+    /// which implicitly extends either the extant, or a novel span. In the latter case, the
+    /// pre-existing unfrozen span-length is finalized as soon as the subsequent span is
+    /// initialized.
     ///
     /// The 'active' span-length starts out uninitialized, that is, holding no value (this is logically
     /// distinct from holding the value `0`). In this state,
@@ -189,14 +191,29 @@ mod spanbuffer {
             Iter(self.stable.iter().chain(self.active.iter()).copied())
         }
 
-        /// Reverses the operation of finalizing an active buffer
+        /// Reverses the operation of finalizing an active span-length
+        ///
+        /// # Safety
+        ///
+        /// This method does not check that the stable buffer has any values
+        /// to unfreeze, or that the active span-length is uninitialized,
+        /// and therefore can clobber existing and cause inconsistencies
+        /// in the internal book-keeping if misused.
+        ///
+        /// It is recommended to use [`unfreeze`], which will check these
+        /// conditions and panic if either are violated.
         #[inline]
         #[cfg(feature = "unfreeze_spanbuffer")]
         pub unsafe fn unfreeze_unchecked(&mut self) {
-            std::mem::replace(&mut self.active, Vec::pop(&mut self.stable));
+            self.active = Vec::pop(&mut self.stable);
         }
 
-        /// Reverses the operation of finalizing an active
+        /// Reverses the operation of finalizing an active span-length
+        ///
+        /// # Panics
+        ///
+        /// This method will panic if the active span-length is non-empty,
+        /// or if the stable buffer of frozen span-lengths is empty.
         #[inline]
         #[cfg(feature = "unfreeze_spanbuffer")]
         pub fn unfreeze(&mut self) {
@@ -206,7 +223,7 @@ mod spanbuffer {
             );
             let last = Vec::pop(&mut self.stable);
             assert!(last.is_some(), "No frozen spans to unfreeze");
-            std::mem::replace(&mut self.active, last);
+            self.active = last;
         }
 
         /// Returns `true` if no spans have been initialized or finalized
@@ -230,6 +247,7 @@ mod spanbuffer {
         ///
         /// This function breaks the abstraction that `Spanner` consists
         /// solely of a vector with mutable access to only the final index.
+        #[must_use]
         #[allow(dead_code)]
         pub fn as_parts(&self) -> (&[usize], Option<usize>) {
             (self.stable.as_slice(), self.active)
@@ -239,6 +257,7 @@ mod spanbuffer {
         ///
         /// Uninitialized spans are not counted, but even zero-length
         /// active spans count towards the total.
+        #[must_use]
         #[allow(dead_code)]
         pub fn count_spans(&self) -> usize {
             self.stable.len() + (self.active.is_some() as usize)

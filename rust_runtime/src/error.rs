@@ -1,129 +1,112 @@
+//! General error types
+//!
+//! This module contains
+//! though not comprehensiv
+//!
+//! which may
+//!
+//! moved into a dedicated module heading.
+
 use std::error::Error;
 use std::fmt::{Debug, Display};
 
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
-pub enum ConstraintError {
-    /// Error case representing a violation of type-level cardinality constraints
-    /// on a bounded sequence. Note that this error may not reflect the true length
-    /// of the invalid conversion, as it may have been returned from a parse operation
-    /// that short-circuited when it did not terminate its parse-loop after [limit]
-    /// elements were already added.
-    TooManyElements { limit: usize, actual: usize },
-    /// Error case representing a violation of type-level cardinality constraints
-    /// on an exact-length sequence, whether too few or too many.
-    ConstantLengthViolation { expected: usize, actual: usize },
-    /// Error case representing a violation of type-level serialization-width constraints
-    /// on a size-bounded value.
-    TooManyBytes { limit: usize, actual: usize },
+/// Enumerated error type for failures related to schema constructs
+/// that impose a check on the byte-width on their prospective values.
+///
+/// Structurally similar to [`LengthError`], an analoguous error-type
+/// relating to the number of elements in a collection-type, rather than
+/// the number of bytes in a potentially opaque schema type.
+#[derive(Clone, PartialEq, PartialOrd, Eq, Ord, Debug)]
+pub enum WidthError {
+    /// Restriction on maximum byte-width exceeded
+    TooWide { limit: usize, actual: usize },
+    /// Requirement of precise byte-width not satisfied
+    WrongWidth { exact: usize, actual: usize },
 }
 
-impl Display for ConstraintError {
+impl Display for WidthError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            ConstraintError::TooManyElements { limit, actual } => write!(
-                f,
-                "schema-level cardinality-constraint violation: max is {}, found {}",
-                limit, actual
-            ),
-            ConstraintError::ConstantLengthViolation { expected, actual } => write!(
-                f,
-                "schema-level cardinality-constraint violation: expected {}, found {}",
-                expected, actual
-            ),
-            ConstraintError::TooManyBytes { limit, actual } => write!(
-                f,
-                "schema-level bytewidth-constraint violation: max is {}, found {}",
-                limit, actual
-            ),
-        }
-    }
-}
-
-impl Error for ConstraintError {}
-
-/// Enumerated type representing errors in conversion from hex-strings
-/// into byte-buffers.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Ord, PartialOrd)]
-pub enum ConvError<T> {
-    /// Constructor `ParityError` indicates the error scenario in which the parity of the
-    /// length of the string we wish to interpret as a hex-encoded byte buffer
-    /// is not even, and therefore is malformed.
-    ParityError(T),
-    /// `HexError` indicates the error scenario in which an aligned two-byte
-    /// substring of the string we are converting, is not a valid hexadecimal
-    /// encoding of an 8-bit word.
-    HexError(T),
-}
-
-impl ConvError<&'_ str>
-{
-    pub fn to_owned(self) -> ConvError<String> {
-        match self {
-            ConvError::ParityError(src) => ConvError::ParityError(src.to_owned()),
-            ConvError::HexError(src) => ConvError::HexError(src.to_owned()),
-        }
-    }
-}
-
-impl Display for ConvError<()> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::ParityError(_) => write!(f, "cannot parse string with odd parity as hexstring"),
-            Self::HexError(_) => write!(
-                f,
-                "parsing of hexstring encountered invalid hexadecimal character(s)"
-            ),
-        }
-    }
-}
-
-impl Display for ConvError<&'_ str> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::ParityError(s) => {
-                write!(
-                    f,
-                    "input string has odd parity ({}) (expected even): '{}'",
-                    s.len(),
-                    s
-                )
+            WidthError::TooWide { limit, actual } => {
+                write!(f, "{actual}-byte value exceeded limit of {limit} bytes")
             }
-            Self::HexError(s) => {
-                write!(
-                    f,
-                    "input string contains non-hex two-byte aligned substring: '{}'",
-                    s
-                )
+            WidthError::WrongWidth { exact, actual } => {
+                write!(f, "{actual}-byte value violated requirement of {exact} bytes")
             }
         }
     }
 }
 
-impl Display for ConvError<String> {
+impl Error for WidthError {}
+
+
+/// Enumerated error type for failures related to schema constructs
+/// that impose a check on the element-count of their prospective
+/// values, which are typically collection types.
+///
+/// Structurally similar to [`WidthError`], an analogous error-type
+/// relating to the byte-width of a potentially opaque schema type,
+/// rather than the number of elements in a collection-type.
+#[derive(Clone, PartialEq, PartialOrd, Eq, Ord, Debug)]
+pub enum LengthError {
+    /// Restriction on maximum element-count exceeded
+    TooLong { limit: usize, actual: usize },
+    /// Requirement of precise element-count not satisfied
+    WrongLength { exact: usize, actual: usize },
+}
+
+impl Display for LengthError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::ParityError(s) => {
-                write!(
-                    f,
-                    "input string has odd parity ({}) (expected even): '{}'",
-                    s.len(),
-                    s
-                )
+            LengthError::TooLong { limit, actual } => {
+                write!(f, "{actual}-element value exceeded limit of {limit} elements")
             }
-            Self::HexError(s) => {
-                write!(
-                    f,
-                    "input string contains non-hex two-byte aligned substring: '{}'",
-                    s
-                )
+            LengthError::WrongLength { exact, actual } => {
+                write!(f, "{actual}-element value violated requirement of {exact} elements")
             }
         }
     }
 }
 
-impl Error for ConvError<()> {}
-impl Error for ConvError<&'_ str> {}
-impl Error for ConvError<String> {}
+impl Error for LengthError {}
+
+/// Error type representing all possible conditions for invalidity
+/// encountered when attempting to parse a string-type as a series
+/// of hex-encoded bytes.
+#[derive(Clone, PartialEq, Eq, Ord, PartialOrd)]
+pub enum HexConvError {
+    /// Error case for odd-length strings
+    OddParity(String),
+    /// Error case for strings containing non-hex characters,
+    /// i.e. anything not in `[0-9a-fA-F]`.
+    NonHex(String),
+}
+
+impl Debug for HexConvError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::OddParity(invalid) => {
+                write!(f, "Non-even length-parity for string `{}`", invalid)
+            }
+            Self::NonHex(invalid) => write!(f, "Non-hex character found in string `{}`", invalid),
+        }
+    }
+}
+
+impl Display for HexConvError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::OddParity(_) => {
+                write!(f, "hex-conversion failed on odd-length string")
+            }
+            Self::NonHex(_) => {
+                write!(f, "hex-conversion failed on non-hex character")
+            }
+        }
+    }
+}
+
+impl Error for HexConvError {}
 
 /// Error type representing invalidity of (numeric) values
 /// based on an implicit lower and upper bound.

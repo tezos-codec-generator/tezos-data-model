@@ -1,4 +1,4 @@
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug, PartialEq, PartialOrd, Eq, Ord)]
 pub struct LengthMismatchError {
     expected: usize,
     actual: usize,
@@ -22,14 +22,14 @@ impl LengthMismatchError {
     }
 }
 
-pub mod bytestring {
+pub mod bytes {
     use crate::conv::{len, target::Target, Decode, Encode};
     use crate::parse::{ParseResult, Parser};
 
     #[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Debug, Hash)]
-    pub struct ByteString<const N: usize>([u8; N]);
+    pub struct FixedBytes<const N: usize>([u8; N]);
 
-    impl<const N: usize> Default for ByteString<N>
+    impl<const N: usize> Default for FixedBytes<N>
     where
         [u8; N]: Default,
     {
@@ -38,25 +38,25 @@ pub mod bytestring {
         }
     }
 
-    impl<const N: usize> From<&[u8; N]> for ByteString<N> {
+    impl<const N: usize> From<&[u8; N]> for FixedBytes<N> {
         fn from(arr: &[u8; N]) -> Self {
             Self(*arr)
         }
     }
 
-    impl<const N: usize> len::FixedLength for ByteString<N> {
+    impl<const N: usize> len::FixedLength for FixedBytes<N> {
         const LEN: usize = N;
     }
 
-    impl<const N: usize> Encode for ByteString<N> {
+    impl<const N: usize> Encode for FixedBytes<N> {
         fn write_to<U: Target>(&self, buf: &mut U) -> usize {
             buf.push_all(&self.0) + buf.resolve_zero()
         }
     }
 
-    impl<const N: usize> Decode for ByteString<N> {
+    impl<const N: usize> Decode for FixedBytes<N> {
         fn parse<P: Parser>(p: &mut P) -> ParseResult<Self> {
-            Ok(ByteString(p.take_fixed::<N>()?))
+            Ok(FixedBytes(p.take_fixed::<N>()?))
         }
     }
 
@@ -71,15 +71,15 @@ pub mod bytestring {
         #[test]
         fn bytestring_hex() {
             let hex = hex!("deadbeef");
-            let b = ByteString::<4>::decode(hex);
-            assert_eq!(b, ByteString([0xde, 0xad, 0xbe, 0xef]));
+            let b = FixedBytes::<4>::decode(hex);
+            assert_eq!(b, FixedBytes([0xde, 0xad, 0xbe, 0xef]));
             assert_eq!(b.encode::<StrictBuilder>().into_hex(), "deadbeef");
         }
 
         #[test]
         fn bytestring_ascii() {
-            let b = ByteString::<12>::decode(b"hello world!");
-            assert_eq!(b, ByteString::from(b"hello world!"));
+            let b = FixedBytes::<12>::decode(b"hello world!");
+            assert_eq!(b, FixedBytes::from(b"hello world!"));
             assert_eq!(
                 b.encode::<StrictBuilder>().into_bin().unwrap(),
                 "hello world!"
@@ -88,7 +88,7 @@ pub mod bytestring {
     }
 }
 
-pub mod charstring {
+pub mod string {
     use std::convert::TryInto;
 
     use crate::conv::target::Target;
@@ -98,11 +98,11 @@ pub mod charstring {
     use super::LengthMismatchError;
 
     #[derive(PartialEq, Eq, PartialOrd, Ord, Debug, Clone, Copy, Hash)]
-    pub struct CharString<const N: usize> {
+    pub struct FixedString<const N: usize> {
         contents: [u8; N],
     }
 
-    impl<const N: usize> Default for CharString<N>
+    impl<const N: usize> Default for FixedString<N>
     where
         [u8; N]: Default,
     {
@@ -113,11 +113,11 @@ pub mod charstring {
         }
     }
 
-    impl<const N: usize> len::FixedLength for CharString<N> {
+    impl<const N: usize> len::FixedLength for FixedString<N> {
         const LEN: usize = N;
     }
 
-    impl<const N: usize> std::convert::TryFrom<&str> for CharString<N> {
+    impl<const N: usize> std::convert::TryFrom<&str> for FixedString<N> {
         type Error = LengthMismatchError;
 
         fn try_from(value: &str) -> Result<Self, Self::Error> {
@@ -132,13 +132,13 @@ pub mod charstring {
         }
     }
 
-    impl<const N: usize> From<[u8; N]> for CharString<N> {
+    impl<const N: usize> From<[u8; N]> for FixedString<N> {
         fn from(arr: [u8; N]) -> Self {
             Self { contents: arr }
         }
     }
 
-    impl<const N: usize> From<&[u8; N]> for CharString<N> {
+    impl<const N: usize> From<&[u8; N]> for FixedString<N> {
         fn from(arr: &[u8; N]) -> Self {
             Self {
                 contents: arr.to_owned(),
@@ -146,13 +146,13 @@ pub mod charstring {
         }
     }
 
-    impl<const N: usize> Encode for CharString<N> {
+    impl<const N: usize> Encode for FixedString<N> {
         fn write_to<U: Target>(&self, buf: &mut U) -> usize {
             buf.push_all(&self.contents) + buf.resolve_zero()
         }
     }
 
-    impl<const N: usize> Decode for CharString<N> {
+    impl<const N: usize> Decode for FixedString<N> {
         fn parse<P: Parser>(p: &mut P) -> ParseResult<Self> {
             Ok(p.take_fixed::<N>()?.into())
         }
@@ -165,14 +165,14 @@ pub mod charstring {
         use super::*;
 
         fn check_str<const N: usize>(case: &'static str) {
-            let res = CharString::<N>::decode(case);
-            assert_eq!(res, CharString::try_from(case).unwrap());
+            let res = FixedString::<N>::decode(case);
+            assert_eq!(res, FixedString::try_from(case).unwrap());
             assert_eq!(res.encode::<StrictBuilder>().into_bin().unwrap(), case);
         }
 
         fn check_arr<const N: usize>(case: &[u8; N]) {
-            let res = CharString::<N>::decode(case);
-            assert_eq!(res, CharString::from(case));
+            let res = FixedString::<N>::decode(case);
+            assert_eq!(res, FixedString::from(case));
             assert_eq!(
                 <StrictBuilder as Borrow<[u8]>>::borrow(&res.encode::<StrictBuilder>()),
                 case

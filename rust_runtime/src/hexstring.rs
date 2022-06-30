@@ -53,15 +53,16 @@
 //! majority of string-like types.
 
 use crate::conv::target::Target;
-use crate::error::ConvError::{self, HexError, ParityError};
-use std::{convert::TryFrom, iter::FromIterator};
+use crate::error::HexConvError;
+use std::convert::TryFrom;
+use std::iter::FromIterator;
 
 pub use std::vec::IntoIter;
 
 pub type Iter<'a> = std::slice::Iter<'a, u8>;
 
 pub(crate) mod util {
-    use crate::error::ConvError;
+    use crate::error::HexConvError;
     use std::fmt::Write;
 
     /// Formats a sequence of bytes into an undelimited hexadecimal `String`
@@ -87,6 +88,21 @@ pub(crate) mod util {
         hex
     }
 
+    macro_rules! write_hex {
+        ( $fmt:expr $(, $text:expr $(, $arg:expr )* )? ; $buf:expr ) =>
+        {{
+            $(
+                write!($fmt, $text, $( $arg ),* )?;
+            )?
+            for &byte in $buf {
+                write!($fmt, "{byte:02x}")?;
+            }
+            Ok(())
+        }};
+    }
+
+    pub(crate) use write_hex;
+
     /// Attempt to parse a hexadecimally encoded string-like type, returning either
     /// a `Vec<u8>` holding the decoded bytes or an error containing the invalid
     /// string.
@@ -108,13 +124,13 @@ pub(crate) mod util {
     /// ```
     ///
     #[inline]
-    pub fn bytes_of_hex(src: &str) -> Result<Vec<u8>, ConvError<&str>> {
+    pub fn bytes_of_hex(src: &str) -> Result<Vec<u8>, HexConvError> {
         let ascii_len = src.len();
 
         if ascii_len == 0 {
             return Ok(Vec::new());
         } else if ascii_len % 2 != 0 {
-            return Err(ConvError::ParityError(src));
+            return Err(HexConvError::OddParity(src.to_string()));
         }
 
         let mut dst = Vec::with_capacity(ascii_len / 2);
@@ -122,7 +138,7 @@ pub(crate) mod util {
         for ix in (0..ascii_len).step_by(2) {
             match u8::from_str_radix(&src[ix..ix + 2], 16) {
                 Ok(word) => dst.push(word),
-                Err(_) => return Err(ConvError::HexError(src)),
+                Err(_) => return Err(HexConvError::NonHex(src.to_string())),
             }
         }
         Ok(dst)
@@ -305,7 +321,6 @@ impl HexString {
             bytes: bytes.into(),
         }
     }
-
 }
 
 impl HexString {
@@ -332,12 +347,12 @@ impl HexString {
     /// Returns an error if the string length is of odd parity, or if it
     /// contains any characters that are not valid hexadecimal digits,
     /// insensitive to case.
-    pub fn from_hex<S>(hex: S) -> Result<Self, crate::error::ConvError<String>>
+    pub fn from_hex<S>(hex: S) -> Result<Self, HexConvError>
     where
         S: AsRef<str>,
     {
         Ok(Self {
-            bytes: util::bytes_of_hex(hex.as_ref()).map_err(ConvError::to_owned)?,
+            bytes: util::bytes_of_hex(hex.as_ref())?,
         })
     }
 
@@ -374,7 +389,6 @@ impl HexString {
         self.bytes.iter()
     }
 }
-
 
 impl AsRef<[u8]> for HexString {
     fn as_ref(&self) -> &[u8] {
@@ -516,18 +530,15 @@ impl_from!(N, std::rc::Rc<[u8; N]>, to_vec);
 impl_from!(N, std::sync::Arc<[u8; N]>, to_vec);
 impl_from!(N, std::borrow::Cow<'_, [u8; N]>, to_vec);
 
-
 macro_rules! impl_try_from {
     ( $src:ty ) => {
         impl TryFrom<$src> for HexString {
-            type Error = ConvError<String>;
+            type Error = HexConvError;
 
             fn try_from(s: $src) -> Result<Self, Self::Error> {
-                match $crate::hexstring::util::bytes_of_hex(&s) {
-                    Ok(bytes) => Ok(HexString { bytes }),
-                    Err(HexError(s)) => Err(HexError(s.to_string())),
-                    Err(ParityError(s)) => Err(ParityError(s.to_string())),
-                }
+                Ok(HexString {
+                    bytes: $crate::hexstring::util::bytes_of_hex(&s)?,
+                })
             }
         }
     };
@@ -563,14 +574,12 @@ macro_rules! hex {
 }
 
 impl std::str::FromStr for HexString {
-    type Err = crate::error::ConvError<String>;
+    type Err = HexConvError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         Self::try_from(s)
     }
 }
-
-
 
 macro_rules! impl_partialeq_hexstr {
     ( $other:ty ) => {

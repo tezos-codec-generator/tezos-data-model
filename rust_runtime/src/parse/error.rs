@@ -12,30 +12,30 @@
 //! `ParseResult<T>`; it additionally defines various type-level refinements of
 //! `ParseError`, grouped according to similar provenance or nature.
 
-use std::{
-    convert::Infallible,
-    fmt::{Display, Formatter, Result},
-    string::FromUtf8Error,
-};
+use std::array::TryFromSliceError;
+use std::convert::Infallible;
+use std::error::Error;
+use std::fmt::{Display, Formatter, Result};
+use std::string::FromUtf8Error;
 
-use crate::error::{BoundsError, ConstraintError};
+use crate::error::{BoundsError, LengthError, WidthError};
 
-/// Any error that may be encountered within `Parser`-related code
-///
-///
-#[derive(Debug, Clone, PartialEq)]
+/// Enumeration type over all errors that may be encountered when calling
+/// methods on `Parser` types, or implementation-specific helper types for
+/// `Parser` implementors.
+#[derive(Debug, Clone)]
 pub enum ParseError {
     /// Error class encountered when opening, closing, or checking context windows.
-    WindowError(WindowError),
+    Window(WindowError),
     /// Error class encountered when internal invariants or preconditions are violated
-    InternalError(InternalError),
+    Internal(InternalError),
     /// Error class encountered when low-level parsing is successful but
     /// the resultant raw value cannot be converted into a legal value of
     /// a post-parse type
     ///
     /// This class of error is the only one that can occur even after the correspondign
     /// parse operation is successful
-    ExternalError(ExternalError),
+    External(ExternalError),
     /// Error class encountered when low-level parsing is unsuccessful due
     /// to a failure of expectation in terms of the binary-lexical contents
     /// of the buffer.
@@ -43,24 +43,16 @@ pub enum ParseError {
     /// This includes invalid tag-words, illegal values for bytes intended to
     /// represent booleans, and failure of self-terminating values to terminate
     /// before reaching a frame-limit.
-    TokenError(TokenError),
+    Token(TokenError),
 }
 
 impl Display for ParseError {
     fn fmt(&self, f: &mut Formatter) -> Result {
         match self {
-            ParseError::WindowError(err) => {
-                write!(f, "Context-window error: {}", err)
-            }
-            ParseError::InternalError(err) => {
-                write!(f, "Internal error: {}", err)
-            }
-            ParseError::ExternalError(err) => {
-                write!(f, "External error: {}", err)
-            }
-            ParseError::TokenError(err) => {
-                write!(f, "Token error: {}", err)
-            }
+            ParseError::Window(err) => Display::fmt(err, f),
+            ParseError::Internal(err) => Display::fmt(err, f),
+            ParseError::External(err) => Display::fmt(err, f),
+            ParseError::Token(err) => Display::fmt(err, f),
         }
     }
 }
@@ -68,6 +60,17 @@ impl Display for ParseError {
 impl From<Infallible> for ParseError {
     fn from(_: Infallible) -> Self {
         unreachable!()
+    }
+}
+
+impl Error for ParseError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            ParseError::Window(err) => Some(err),
+            ParseError::Internal(err) => Some(err),
+            ParseError::External(err) => Some(err),
+            ParseError::Token(err) => Some(err),
+        }
     }
 }
 
@@ -135,7 +138,7 @@ pub enum WindowError {
 
 impl From<WindowError> for ParseError {
     fn from(err: WindowError) -> Self {
-        Self::WindowError(err)
+        Self::Window(err)
     }
 }
 
@@ -193,6 +196,8 @@ impl Display for WindowError {
     }
 }
 
+impl Error for WindowError {}
+
 /// Errors arising from unexpected tokens in the buffer
 ///
 /// Includes tag errors, boolean value errors, and non-termination
@@ -214,13 +219,12 @@ pub enum TokenError {
     /// Implicitly NIL-valued padding contained non-NIL byte
     NonNullPaddingByte {
         padding: Vec<u8>,
-        invalid: usize,
     },
 }
 
 impl From<TokenError> for ParseError {
     fn from(tok_e: TokenError) -> Self {
-        Self::TokenError(tok_e)
+        Self::Token(tok_e)
     }
 }
 
@@ -240,27 +244,24 @@ impl Display for TokenError {
                 write!(f, "invalid tag: {}", err)
             }
             Self::NonTerminating(buf) => {
-                write!(
-                    f,
-                    "self-terminating element failed to terminate within bounding context: `{}`",
-                    crate::hexstring::util::hex_of_bytes(buf)
-                )
+                crate::hexstring::util::write_hex!(f, "element failed to terminate: "; buf)
             }
-            Self::NonNullPaddingByte { padding, invalid } => {
-                if let (valid, &[nonnull, ref tail @ ..]) = padding.split_at(*invalid) {
-                    write!(f, "non-null byte found in padding: ")?;
-                    for &byte in valid {
-                        write!(f, "{byte:02x}")?
-                    }
-                    write!(f, ">{nonnull:02x}<")?;
-                    for &byte in tail {
-                        write!(f, "{byte:02x}")?
-                    }
-                    Ok(())
-                } else {
-                    unreachable!("first invalid byte in non-null-padding-byte error should not be out-of-bounds")
-                }
+            Self::NonNullPaddingByte { padding } => {
+                crate::hexstring::util::write_hex!(f, "non-null byte found in padding: "; padding)
             }
+        }
+    }
+}
+
+impl Error for TokenError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            TokenError::InvalidBoolean(_) => None,
+            TokenError::InvalidTagU8(err8) => Some(err8),
+            TokenError::InvalidTagU16(err16) => Some(err16),
+            TokenError::InvalidTagU30(err30) => Some(err30),
+            TokenError::NonTerminating(_) => None,
+            TokenError::NonNullPaddingByte { .. } => None,
         }
     }
 }
@@ -277,18 +278,49 @@ impl Display for TokenError {
 /// It is possible that this type of error will be deprecated, and the logic
 /// that produces values of this type may instead use `unreachable!()`,
 /// or `assert!`-like mechanisms that issue panics when things go wrong.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy)]
 pub enum InternalError {
     ConsumeLengthMismatch { expected: usize, actual: usize },
-    SliceCoerceFailure,
+    SliceCoerceFailure(TryFromSliceError),
     NoValidTags,
 }
 
 impl From<InternalError> for ParseError {
-    fn from(ierr: InternalError) -> Self {
-        Self::InternalError(ierr)
+    fn from(err: InternalError) -> Self {
+        Self::Internal(err)
     }
 }
+
+impl Display for InternalError {
+    fn fmt(&self, f: &mut Formatter) -> Result {
+        match self {
+            InternalError::ConsumeLengthMismatch { expected, actual } => {
+                write!(
+                    f,
+                    "bug: consume({}) returned slice of length {}",
+                    expected, actual
+                )
+            }
+            InternalError::SliceCoerceFailure(_err) => {
+                write!(f, "failed to coerce from byte-slice to fixed-length array")
+            }
+            InternalError::NoValidTags => {
+                write!(f, "cannot parse enum with no known-valid discriminants")
+            }
+        }
+    }
+}
+
+impl Error for InternalError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            InternalError::ConsumeLengthMismatch { .. } => None,
+            InternalError::SliceCoerceFailure(err) => Some(err),
+            InternalError::NoValidTags => None,
+        }
+    }
+}
+
 /// Converts a borrowed byte-slice into an owned byte-array
 ///
 /// Returns a [`ParseError`] corresponding to the reason for
@@ -306,33 +338,7 @@ pub(crate) fn coerce_slice<const N: usize>(bytes: &'_ [u8]) -> ParseResult<[u8; 
     } else {
         match <[u8; N] as std::convert::TryFrom<&'_ [u8]>>::try_from(bytes) {
             Ok(arr) => Ok(arr),
-            Err(_err) => Err(InternalError::SliceCoerceFailure.into()),
-        }
-    }
-}
-
-impl Display for InternalError {
-    fn fmt(&self, f: &mut Formatter) -> Result {
-        match self {
-            InternalError::ConsumeLengthMismatch { expected, actual } => {
-                write!(
-                    f,
-                    "bug: consume({}) returned slice of length {}",
-                    expected, actual
-                )
-            }
-            InternalError::SliceCoerceFailure => {
-                write!(
-                    f,
-                    "bug: failed to coerce from byte-slice to fixed-length array"
-                )
-            }
-            InternalError::NoValidTags => {
-                write!(
-                    f,
-                    "bug: cannot parse discriminant of enum with no specified valid values"
-                )
-            }
+            Err(err) => Err(InternalError::SliceCoerceFailure(err).into()),
         }
     }
 }
@@ -353,8 +359,11 @@ pub enum ExternalError {
     /// outside of the valid range of a RangedFloat type.
     FloatRangeViolation(BoundsError<f64>),
     /// Error scenario in which a trivial type-conversion could not be performed without implicitly
-    /// violating a type-level (schema-level) constraint in the target type.
-    ConstraintViolation(ConstraintError),
+    /// violating a type-level (schema-level) constraint on the byte-width the target type.
+    WidthViolation(WidthError),
+    /// Error scenario in which a trivial type-conversion could not be performed without implicitly
+    /// violating a type-level (schema-level) constraint on the element-count the target type.
+    LengthViolation(LengthError),
 }
 
 impl<T> From<T> for ParseError
@@ -362,7 +371,7 @@ where
     ExternalError: From<T>,
 {
     fn from(err: T) -> Self {
-        ParseError::ExternalError(ExternalError::from(err))
+        ParseError::External(ExternalError::from(err))
     }
 }
 
@@ -384,9 +393,15 @@ impl From<BoundsError<f64>> for ExternalError {
     }
 }
 
-impl From<ConstraintError> for ExternalError {
-    fn from(err: ConstraintError) -> Self {
-        Self::ConstraintViolation(err)
+impl From<LengthError> for ExternalError {
+    fn from(err: LengthError) -> Self {
+        Self::LengthViolation(err)
+    }
+}
+
+impl From<WidthError> for ExternalError {
+    fn from(err: WidthError) -> Self {
+        Self::WidthViolation(err)
     }
 }
 
@@ -406,9 +421,24 @@ impl Display for ExternalError {
             ExternalError::FloatRangeViolation(x) => {
                 write!(f, "{}", x)
             }
-            ExternalError::ConstraintViolation(x) => {
+            ExternalError::LengthViolation(x) => {
                 write!(f, "{}", x)
             }
+            ExternalError::WidthViolation(x) => {
+                write!(f, "{}", x)
+            }
+        }
+    }
+}
+
+impl Error for ExternalError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            ExternalError::UncoercableString(err) => Some(err),
+            ExternalError::IntRangeViolation(err) => Some(err),
+            ExternalError::FloatRangeViolation(err) => Some(err),
+            ExternalError::WidthViolation(err) => Some(err),
+            ExternalError::LengthViolation(err) => Some(err),
         }
     }
 }
@@ -432,7 +462,9 @@ where
         + std::fmt::LowerHex
         + PartialEq
         + Copy
-        + private::Sealed,
+        + private::Sealed
+        + Send
+        + Sync,
 {
     /// Lifts a `TagError<Self>` into a [`ParseError`] by wrapping
     /// it in the appropriate constructors
@@ -640,10 +672,24 @@ impl<T> TagError<T>
 where
     T: Into<TagError<T>> + TagType,
 {
+    /// Constructs a `TagError<T>` value with the provided type-name `for_type` and
+    /// set of valid values `expected`
     pub fn new(actual: T, for_type: &'static str, expected: Option<Vec<T>>) -> Self {
         Self {
             actual,
             for_type,
+            expected,
+        }
+    }
+
+    /// Constructs a `TagError<T>` from the invalid tag value and a list of valid tag-values,
+    /// using an inferred type-name via [`Any::type_name`](std::any::Any::type_name)
+    pub fn with_type<U>(actual: T, expected: Option<Vec<T>>) -> Self
+    where U: std::any::Any
+    {
+        Self {
+            actual,
+            for_type: std::any::type_name::<U>(),
             expected,
         }
     }
@@ -674,19 +720,6 @@ where
     }
 }
 
-macro_rules! mk_error {
-    ( $( $et:ty ),+ $(,)? ) => {
-        $( impl std::error::Error for $et {} )+
-    };
-}
-
-mk_error! {
-    ParseError,
-    WindowError,
-    InternalError,
-    TokenError,
-    ExternalError,
-    TagError<u8>,
-    TagError<u16>,
-    TagError<u32>,
-}
+impl Error for TagError<u8> {}
+impl Error for TagError<u16> {}
+impl Error for TagError<u32> {}
