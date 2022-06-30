@@ -1,9 +1,10 @@
 use crate::error::LengthError;
 use crate::parse::{Parser, error::ParseResult};
-use crate::schema::seq::boundedseq_impl::{BoundedSeqImpl, IsBoundedSeq};
 use crate::conv::{Decode, Encode, len::Estimable, target::Target};
 use std::iter::FromIterator;
 use std::ops::{Deref, DerefMut};
+
+use super::boundedseq_impl::{BoundedSeqImpl, IsBoundedSeq};
 
 mod inner {
     #[cfg(feature = "arrayvec_limseq")]

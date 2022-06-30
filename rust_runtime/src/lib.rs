@@ -69,6 +69,7 @@ pub mod parse;
 pub mod prelude;
 pub mod prim;
 pub mod schema;
+pub mod seq;
 pub mod zarith;
 
 pub use crate::autobox::AutoBox;
@@ -79,7 +80,7 @@ pub use crate::conv::{
     Decode, Encode,
 };
 pub use crate::dynamic::{Dynamic, VPadded};
-pub use crate::fixed::{bytes::FixedBytes, string::FixedString};
+pub use crate::fixed::{FixedBytes, FixedString};
 pub use crate::float::RangedFloat;
 pub use crate::hexstring::HexString;
 pub use crate::int::{i31, u30, RangedInt};
@@ -87,14 +88,12 @@ pub use crate::parse::{
     byteparser::ByteParser, error::ParseError, memoparser::MemoParser, sliceparser::SliceParser,
     ParseResult, Parser, TryIntoParser,
 };
-pub use crate::schema::{
-    seq::{fix::FixSeq, lim::LimSeq, Sequence},
-    Bytes, Nullable, Padded,
-};
+pub use crate::schema::{Bytes, Nullable, Padded};
+pub use crate::seq::{fix::FixSeq, lim::LimSeq, Sequence};
 pub use crate::zarith::{n::N, z::Z};
 pub use prelude::{ByteString, CharString};
 
 pub use ::decode_derive::Decode;
 pub use ::encode_derive::Encode;
-pub use ::estimable_derive::Estimable;
+pub use ::estimable_derive::{Estimable, FixedLength};
 pub use ::lazy_static::lazy_static;

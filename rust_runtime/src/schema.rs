@@ -77,22 +77,40 @@ use std::ops::{Deref, DerefMut};
 /// binary-schema AST. It is a shallow wrapper around an inner value of type `T`.
 /// `Padded<T, N>` is encoded as the inner value `T: Encode`, with `N` additional
 /// `NIL`-valued bytes written subsequently. Correspondingly, it is deserialized
+/// by reading a value of type `T` and consuming (or otherwise skipping) `N` bytes.
 ///
-/// a value of type `T`, but adheres to a model of serialization and deserialization
-/// that appends, and correspondingly consumes, `N` extra bytes of padding, which
-/// are assumed to be `NIL`-valued.
+/// # Invariants
 ///
-/// In `data-encoding` itself, the actual value of the padding-bytes during deserialization
-/// is not enforced, but this can be thought of as more of an optimization around
-/// the expected case, rather than as license for non-NIL bytes to be written
-/// during serialization. Correspondingly, the default behavior in this library is to
-/// likewise suppress post-validation of the padding, assuming that it can actually
-/// be consumed legally.
+/// It is an undocumented invariant on the original `Padded` constructor in
+/// `data-encoding` that the encoding being padded must be of fixed (constant)
+/// serialization width. This detail may change in future versions, however, and
+/// it is difficult to statically enforce a bound of fixed-width serialization
+/// on custom types without more complex logic in the generator.
 ///
-/// This behavior can be controlled by setting the feature-flag `check_padding`,
-/// which must be enabled explicitly. Doing so will incur a slight performance overhead
-/// during the decoding of `Padded<T, N>` values, but will potentially catch bugs that
-/// might otherwise go unnoticed, or manifest in confusing forms in subsequent parsing.
+/// Attempting to create or manipulate a `Padded<T, N>` value where `T` is not
+/// of constant binary width (according to [`Estimable::KNOWN`]) is considered
+/// **undefined behavior**, provided that the feature
+/// `relaxed_padding_invariant` is not enabled.
+///
+/// # Padding Bytes
+///
+/// The current implementation of deserialization logic in `data-encoding` does
+/// not check that the extra padding bytes are all `NIL`-valued. Rather than
+/// a license to use arbitrary bytes as padding, this is best thought of as a
+/// an optimization that assumes the expected case, which would otherwise incur
+/// a performance overhead to check, and would not necessarily imply unsoundness
+/// even if it were violated.
+///
+/// Unless overridden by optional feature flags, the deserialization logic in
+/// this crate likewise skips NIL-checking of the padding bytes, and will return
+/// successfully provided that the expected number of padding bytes could be
+/// consumed, regardless of their actual value.
+///
+/// Client libraries using this crate may opt into NIL-checking via the
+/// `check_padding` feature, which is disabled by default.  Doing so will incur
+/// a slight performance overhead during the decoding of `Padded<T, N>` values,
+/// but will potentially catch bugs that might otherwise go unnoticed, or
+/// manifest later on as difficult-to-diagnose errors.
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash, Default)]
 #[repr(transparent)]
 pub struct Padded<T, const N: usize>(T);
@@ -196,7 +214,13 @@ impl<T: Estimable, const N: usize> Estimable for Padded<T, N> {
     const KNOWN: Option<usize> = {
         match T::KNOWN {
             Some(m) => Some(m + N),
-            None => None,
+            None => {
+                if cfg!(feature = "relaxed_padding_invariant") {
+                    None
+                } else {
+                    unsafe { std::hint::unreachable_unchecked() }
+                }
+            }
         }
     };
 
@@ -517,5 +541,3 @@ impl Estimable for Bytes {
         self.0.len()
     }
 }
-pub mod seq;
-pub use seq::*;

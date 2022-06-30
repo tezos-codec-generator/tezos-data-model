@@ -51,9 +51,46 @@ macro_rules! cstyle {
             $( $vname = $vdisc ),+
         }
 
-        impl $crate::Decode for $name {
-            fn parse<P: $crate::Parser>(p: &mut P) -> $crate::ParseResult<$name> {
-                match p.take_tagword::<$name, $backer, _>([ $($vdisc as $backer),+ ])? {
+        impl $name {
+            pub fn get_tagval(&self) -> $backer {
+                match self {
+                    $( $name::$vname => $vdisc, )*
+                }
+            }
+
+            pub fn iter_tags<'a>() -> impl Iterator<Item = &'a $backer> {
+                [ $( $vdisc ),+ ].into_iter()
+            }
+
+            pub const fn is_valid_tag(val: $backer) -> bool {
+                match val {
+                    $(| $vdisc )* => true,
+                    _ => false,
+                }
+            }
+
+            pub const fn get_name(val: $backer) -> Option<&'static str> {
+                match val {
+                    $( $vdisc => Some(stringify!($vname)), )+
+                    _ => None,
+                }
+            }
+        }
+
+        impl std::convert::TryFrom<$backer> for $name {
+            type Error = $crate::parse::error::TagError<$backer>;
+
+            fn try_from(val: $backer) -> std::result::Result<Self, Self::Error> {
+                match val {
+                    $( $vdisc => Ok($name::$vname), )*
+                    _other => Err($crate::parse::error::TagError::with_type::<$name>(_other, Some([ $( $vdisc ),* ].into()))),
+                }
+            }
+        }
+
+        impl $crate::conv::Decode for $name {
+            fn parse<P: $crate::parse::Parser>(p: &mut P) -> $crate::parse::error::ParseResult<$name> {
+                match p.take_tagword::<$name, $backer, _>([ $( $vdisc ),* ])? {
                     $(
                         $vdisc => Ok($name::$vname),
                     )+
@@ -62,8 +99,8 @@ macro_rules! cstyle {
             }
         }
 
-        impl $crate::Encode for $name {
-            fn write_to<U: $crate::Target>(&self, buf: &mut U) -> usize {
+        impl $crate::conv::Encode for $name {
+            fn write_to<U: $crate::conv::target::Target>(&self, buf: &mut U) -> usize {
                 let tag : $backer = match self {
                     $(
                         $name::$vname => $vdisc
@@ -99,13 +136,13 @@ macro_rules! cstyle {
 /// This macro produces both a top-level definition for the enumerated type,
 /// and a series of trait implementations corresponding to the natural
 /// definitions on that type of:
-///   * [`Encode`](../conv/trait.Encode.html)
-///   * [`Decode`](../conv/trait.Decode.html)
-///   * [`Estimable`](../conv/len/trait.Estimable.html)
+///   * [`Encode`](crate::conv::Encode)
+///   * [`Decode`](crate::conv::Decode)
+///   * [`Estimable`](crate::conv::len::Estimable)
 ///
 /// The implementations of `Encode` and `Decode` generated in this fashion, define the
 /// mapping between each constructor and the tag-value it should be associated with.
-/// As it is implemented, no mechanism exists for determining, without attempting to
+/// As implemented, no mechanism exists for determining, without attempting to
 /// encode or decode a dummy value, the tag-value for a given constructor, or the
 /// constructor for a given tag-value.
 ///
@@ -139,13 +176,13 @@ macro_rules! cstyle {
 /// # Syntax Notes
 ///
 /// A quirk of the way this macro is written is that if the final declared variant happens to have no
-/// payload (i.e. `CONSTR_PAYLOAD = ε`), the trailing comma is mandatory for syntactic validity.
+/// payload (i.e. `CONSTR_PAYLOAD = ε`), the trailing comma `,` is mandatory for syntactic validity.
 ///
 /// Furthermore, whenever a type identifier within the payload of a constructor happens to coincide
 /// with the name of the constructor itself, it must be qualified in such a way as to disambiguate
 /// the contained value-type from the constructor name, as the latter becomes a type identifier when
-/// converted to a struct definition in the payload module, and therefore shadows any extant imports
-/// under the same name. For example, while
+/// converted to a struct definition in the payload module. Because of this, it
+/// will shadow any extant imports under the same name. For example, while the following:
 ///
 /// ```ignore
 /// pub enum Foo {
@@ -153,7 +190,7 @@ macro_rules! cstyle {
 /// }
 /// ```
 ///
-/// is unambiguous,
+/// is unambiguous, in the case of this macro,
 ///
 /// ```ignore
 /// data!(Foo, u8, payload, { 0 => String (String) }); // does not compile
@@ -184,8 +221,8 @@ macro_rules! cstyle {
 ///
 /// It is never correct to define a data-enum with even indirect recursion on one of its own payload types,
 /// as payload types are an artifact of this macro and would not normally exist as an in-scope type identifier;
-/// therefore, the automatic resolution of ambiguous type identifiers will never be correct, and qualification
-/// is therefore always required.
+/// because of this, it is not only mandatory to qualify such conflicting names, but doing so will always be
+/// the only coherent option.
 ///
 /// # Semantics
 ///
@@ -247,6 +284,32 @@ macro_rules! data {
         #[derive(Clone, PartialEq, PartialOrd)]
         pub enum $name {
             $( $vname($payload::$vname) ),+
+        }
+
+        impl $name {
+            pub fn get_tagval(&self) -> $backer {
+                match self {
+                    $( $name::$vname(_) => $disc, )*
+                }
+            }
+
+            pub fn iter_tags<'a>() -> impl Iterator<Item = &'a $backer> {
+                [ $( $disc as $backer ),* ].into_iter()
+            }
+
+            pub const fn is_valid_tag(val: $backer) -> bool {
+                match val {
+                    $(| $disc )* => true,
+                    _ => false,
+                }
+            }
+
+            pub const fn get_name(val: $backer) -> Option<&'static str> {
+                match val {
+                    $( $disc => Some(stringify!($vname)), )+
+                    _ => None,
+                }
+            }
         }
 
         impl std::hash::Hash for $name {

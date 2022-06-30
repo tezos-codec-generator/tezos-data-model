@@ -90,11 +90,6 @@ impl<T> AutoBox<T> {
     }
 
     /// Converts an existing `Box<T>` into an `AutoBox<T>` with a direct move
-    #[cfg_attr(feature = "zealous_inline", inline)]
-    #[cfg_attr(
-        all(not(feature = "zealous_inline"), feature = "overzealous_inline"),
-        inline(always)
-    )]
     #[must_use]
     pub fn from_boxed(_box: Box<T>) -> Self {
         Self { _box }
@@ -110,11 +105,6 @@ impl<T> AutoBox<T> {
     /// assert_eq!(&5u8, Box::as_ref(&five.into_boxed()));
     /// ```
     #[must_use]
-    #[cfg_attr(feature = "zealous_inline", inline)]
-    #[cfg_attr(
-        all(not(feature = "zealous_inline"), feature = "overzealous_inline"),
-        inline(always)
-    )]
     pub fn into_boxed(self) -> Box<T> {
         self._box
     }
@@ -144,8 +134,6 @@ impl<T> AutoBox<T> {
     /// assert_eq!(&3u8, five.as_inner());
     /// ```
     #[must_use]
-    #[cfg_attr(all(not(feature = "overzealous_inline"), feature = "zealous_inline"), inline)]
-    #[cfg_attr(feature = "overzealous_inline", inline(always))]
     pub fn as_mut_boxed(&mut self) -> &mut Box<T> {
         &mut self._box
     }
@@ -162,8 +150,6 @@ impl<T> AutoBox<T> {
     /// assert_eq!(x.as_inner(), &8u8);
     /// ```
     #[must_use]
-    #[cfg_attr(all(not(feature = "overzealous_inline"), feature = "zealous_inline"), inline)]
-    #[cfg_attr(feature = "overzealous_inline", inline(always))]
     pub fn as_mut_inner(&mut self) -> &mut T {
         <Box<T> as AsMut<T>>::as_mut(&mut self._box)
     }
@@ -178,8 +164,6 @@ impl<T> AutoBox<T> {
     /// assert_eq!(&5u8, five.as_inner());
     /// ```
     #[must_use]
-    #[cfg_attr(all(not(feature = "overzealous_inline"), feature = "zealous_inline"), inline)]
-    #[cfg_attr(feature = "overzealous_inline", inline(always))]
     pub fn as_inner(&self) -> &T {
         <Box<T> as AsRef<T>>::as_ref(&self._box)
     }
@@ -210,7 +194,6 @@ where
 }
 
 impl<T: Debug> Debug for AutoBox<T> {
-    #[inline(always)]
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         <T as Debug>::fmt(self.as_inner(), f)
     }

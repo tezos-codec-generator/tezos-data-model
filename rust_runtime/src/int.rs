@@ -31,6 +31,7 @@ pub trait Integral
 where
     Self: Copy + std::hash::Hash + std::fmt::Display,
     Self: Integer + Into<i64> + TryFrom<i64>,
+    Self: Eq + PartialEq + Ord + PartialOrd,
     Self: private::Sealed,
 {
 }

@@ -64,17 +64,14 @@ macro_rules! dft {
         pub struct $id($t);
 
         impl $id {
-            #[inline(always)]
-            pub fn from_inner(val: $t) -> Self {
+            pub fn new(val: $t) -> Self {
                 Self(val)
             }
 
-            #[inline(always)]
             pub fn into_inner(self) -> $t {
                 self.0
             }
 
-            #[inline(always)]
             pub fn is_default(&self) -> bool {
                 self.0 == *$tmp
             }
@@ -92,7 +89,7 @@ macro_rules! dft {
             fn from(val: Option<$t>) -> $id {
                 match val {
                     Some(x) => Self(x),
-                    None => Self::default(),
+                    None => Self($tmp.clone()),
                 }
             }
         }
@@ -107,9 +104,9 @@ macro_rules! dft {
             #[inline(always)]
             fn write_to<U: $crate::Target>(&self, buf: &mut U) -> usize {
                 match &self.0 {
-                    x if *x == *$tmp => <Option<$t> as $crate::Encode>::write_to(&None, buf),
+                    x if *x == *$tmp => <Option<$t> as $crate::conv::Encode>::write_to(&None, buf),
                     x => {
-                        buf.push_one(0xffu8) + <$t as $crate::Encode>::write_to(x, buf)
+                        buf.push_one(0xffu8) + <$t as $crate::conv::Encode>::write_to(x, buf)
                     }
                 }
             }

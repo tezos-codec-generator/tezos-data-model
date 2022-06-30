@@ -7,10 +7,10 @@ pub mod stable_names {
     //! type until these changes are stabilized.
 
     /// Alias for [`FixedBytes<N>`] under its previous name
-    pub type ByteString<const N: usize> = crate::fixed::bytes::FixedBytes<N>;
+    pub type ByteString<const N: usize> = crate::fixed::FixedBytes<N>;
 
     /// Alias for [`FixedString<N>`] under its previous name
-    pub type CharString<const N: usize> = crate::fixed::string::FixedString<N>;
+    pub type CharString<const N: usize> = crate::fixed::FixedString<N>;
 }
 
 #[doc(inline)]

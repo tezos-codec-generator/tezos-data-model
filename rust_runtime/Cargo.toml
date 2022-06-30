@@ -15,6 +15,7 @@ check_complete_parse = []
 arrayvec_fixseq = ["arrayvec"]
 arrayvec_limseq = ["arrayvec"]
 enc_len_estimable_override = []
+relaxed_padding_invariant = []
 invalid_range_checking = []
 implicit_hexstring = []
 check_padding = []
@@ -30,7 +31,11 @@ encode_derive = { path = "encode_derive", version = "0.1.0" }
 decode_derive = { path = "decode_derive", version = "0.1.0" }
 estimable_derive = { path = "estimable_derive", version = "0.1.0" }
 arrayvec = { version = "0.7.2", optional = true }
-smallvec = { version = "1.8.0", optional = true, features = ["const_new", "const_generics", "union"] }
+smallvec = { version = "1.8.0", optional = true, features = [
+    "const_new",
+    "const_generics",
+    "union",
+] }
 
 [dev-dependencies]
 criterion = "0.3"
@@ -46,4 +51,3 @@ harness = false
 [[bench]]
 name = "hexeq_bench"
 harness = false
-
