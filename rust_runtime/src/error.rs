@@ -7,8 +7,10 @@
 //!
 //! moved into a dedicated module heading.
 
+use std::convert::Infallible;
 use std::error::Error;
 use std::fmt::{Debug, Display};
+use std::num::TryFromIntError;
 
 /// Enumerated error type for failures related to schema constructs
 /// that impose a check on the byte-width on their prospective values.
@@ -31,14 +33,16 @@ impl Display for WidthError {
                 write!(f, "{actual}-byte value exceeded limit of {limit} bytes")
             }
             WidthError::WrongWidth { exact, actual } => {
-                write!(f, "{actual}-byte value violated requirement of {exact} bytes")
+                write!(
+                    f,
+                    "{actual}-byte value violated requirement of {exact} bytes"
+                )
             }
         }
     }
 }
 
 impl Error for WidthError {}
-
 
 /// Enumerated error type for failures related to schema constructs
 /// that impose a check on the element-count of their prospective
@@ -59,10 +63,16 @@ impl Display for LengthError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             LengthError::TooLong { limit, actual } => {
-                write!(f, "{actual}-element value exceeded limit of {limit} elements")
+                write!(
+                    f,
+                    "{actual}-element value exceeded limit of {limit} elements"
+                )
             }
             LengthError::WrongLength { exact, actual } => {
-                write!(f, "{actual}-element value violated requirement of {exact} elements")
+                write!(
+                    f,
+                    "{actual}-element value violated requirement of {exact} elements"
+                )
             }
         }
     }
@@ -86,9 +96,9 @@ impl Debug for HexConvError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::OddParity(invalid) => {
-                write!(f, "Non-even length-parity for string `{}`", invalid)
+                write!(f, "non-even length-parity for string `{}`", invalid)
             }
-            Self::NonHex(invalid) => write!(f, "Non-hex character found in string `{}`", invalid),
+            Self::NonHex(invalid) => write!(f, "non-hex character found in string `{}`", invalid),
         }
     }
 }
@@ -128,7 +138,19 @@ pub enum BoundsError<Ext> {
     Underflow { min: Ext, val: Ext },
     Overflow { max: Ext, val: Ext },
     InvalidBounds { min: Ext, max: Ext },
-    FailedConversion,
+    Failed(TryFromIntError),
+}
+
+impl<Ext> From<Infallible> for BoundsError<Ext> {
+    fn from(_void: Infallible) -> Self {
+        match _void {}
+    }
+}
+
+impl<Ext> From<TryFromIntError> for BoundsError<Ext> {
+    fn from(err: TryFromIntError) -> Self {
+        Self::Failed(err)
+    }
 }
 
 impl<Ext> BoundsError<Ext> {
@@ -155,37 +177,35 @@ impl<Ext> BoundsError<Ext> {
         Ext: PartialOrd + Copy,
         T: std::convert::TryInto<Ext> + Copy,
         U: Into<Ext> + PartialOrd,
+        BoundsError<Ext>: From<T::Error>,
     {
         let min_ext: Ext = min.into();
         let max_ext: Ext = max.into();
-        if let Ok(val_ext) = val.try_into() {
-            if val_ext >= min_ext {
-                if val_ext <= max_ext {
-                    Ok(val)
-                } else if min_ext > max_ext {
-                    Err(Self::InvalidBounds {
-                        min: min_ext,
-                        max: max_ext,
-                    })
-                } else {
-                    Err(Self::Overflow {
-                        max: max_ext,
-                        val: val_ext,
-                    })
-                }
+        let val_ext = val.try_into()?;
+        if val_ext >= min_ext {
+            if val_ext <= max_ext {
+                Ok(val)
             } else if min_ext > max_ext {
                 Err(Self::InvalidBounds {
                     min: min_ext,
                     max: max_ext,
                 })
             } else {
-                Err(Self::Underflow {
-                    min: min_ext,
+                Err(Self::Overflow {
+                    max: max_ext,
                     val: val_ext,
                 })
             }
+        } else if min_ext > max_ext {
+            Err(Self::InvalidBounds {
+                min: min_ext,
+                max: max_ext,
+            })
         } else {
-            Err(Self::FailedConversion)
+            Err(Self::Underflow {
+                min: min_ext,
+                val: val_ext,
+            })
         }
     }
 }
@@ -232,15 +252,18 @@ impl<Ext: Display> Display for BoundsError<Ext> {
                     min, max
                 )
             }
-            BoundsError::FailedConversion => {
-                write!(
-                    f,
-                    "conversion to external type {} failed during ranged value bounds-checking",
-                    std::any::type_name::<Ext>(),
-                )
+            BoundsError::Failed(err) => {
+                write!(f, "could not convert for bounds-checking: {}", err)
             }
         }
     }
 }
 
-impl<Ext: Display + Debug> std::error::Error for BoundsError<Ext> {}
+impl<Ext: Display + Debug> std::error::Error for BoundsError<Ext> {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            Self::Failed(err) => Some(err),
+            _ => None,
+        }
+    }
+}

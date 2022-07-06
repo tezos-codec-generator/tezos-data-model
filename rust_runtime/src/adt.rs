@@ -58,7 +58,7 @@ macro_rules! cstyle {
                 }
             }
 
-            pub fn iter_tags<'a>() -> impl Iterator<Item = &'a $backer> {
+            pub fn iter_tags() -> impl Iterator<Item = $backer> {
                 [ $( $vdisc ),+ ].into_iter()
             }
 
@@ -293,7 +293,7 @@ macro_rules! data {
                 }
             }
 
-            pub fn iter_tags<'a>() -> impl Iterator<Item = &'a $backer> {
+            pub fn iter_tags() -> impl Iterator<Item = $backer> {
                 [ $( $disc as $backer ),* ].into_iter()
             }
 

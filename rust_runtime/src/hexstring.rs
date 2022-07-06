@@ -71,7 +71,7 @@ pub(crate) mod util {
     ///
     /// # Examples
     ///
-    /// ```
+    /// ```ignore
     /// # use rust_runtime::util::hex_of_bytes;
     /// assert_eq!(hex_of_bytes(vec![0xde,0xad,0xbe,0xef]), String::from("deadbeef"));
     /// ```
@@ -88,6 +88,9 @@ pub(crate) mod util {
         hex
     }
 
+    /// Writes a formatted message, followed by a hex-string encoded from
+    /// a type implementing [`IntoIterator<Item = &u8>`](std::iter::IntoIterator),
+    /// to a [`std::fmt::Write`] object.
     macro_rules! write_hex {
         ( $fmt:expr $(, $text:expr $(, $arg:expr )* )? ; $buf:expr ) =>
         {{
@@ -118,8 +121,8 @@ pub(crate) mod util {
     ///
     /// # Examples
     ///
-    /// ```
-    /// # use rust_runtime::util::bytes_of_hex;
+    /// ```ignore
+    /// # use rust_runtime::heutil::bytes_of_hex;
     /// assert_eq!(Ok(vec![0xde,0xad,0xbe,0xef]), bytes_of_hex("deadbeef"));
     /// ```
     ///
@@ -133,10 +136,12 @@ pub(crate) mod util {
             return Err(HexConvError::OddParity(src.to_string()));
         }
 
-        let mut dst = Vec::with_capacity(ascii_len / 2);
+        let bytes_len: usize = ascii_len / 2;
 
-        for ix in (0..ascii_len).step_by(2) {
-            match u8::from_str_radix(&src[ix..ix + 2], 16) {
+        let mut dst = Vec::with_capacity(bytes_len);
+
+        for ix in 0..bytes_len {
+            match u8::from_str_radix(&src[(ix * 2)..(ix * 2) + 2], 16) {
                 Ok(word) => dst.push(word),
                 Err(_) => return Err(HexConvError::NonHex(src.to_string())),
             }
@@ -165,22 +170,13 @@ pub(crate) mod util {
             return false;
         }
 
-        if ascii_len == 0 {
-            return true;
-        }
-
-        let mut pat = tgt;
-
-        for ix in (0..ascii_len).step_by(2) {
-            if let &[head, ref tail @ ..] = pat {
-                match u8::from_str_radix(&src[ix..ix + 2], 16) {
-                    Ok(word) if word == head => (),
-                    _ => return false,
-                }
-                pat = tail;
+        for ix in 0..bytes_len {
+            match u8::from_str_radix(&src[(ix * 2)..(ix * 2) + 2], 16) {
+                Ok(byte) if byte == tgt[ix] => continue,
+                _ => return false,
             }
         }
-        pat.is_empty()
+        true
     }
 }
 
@@ -197,14 +193,7 @@ impl HexString {
     /// Extracts a slice containing the entirety of the underlying vector
     ///
     /// Equivalent to `self.as_vec().as_slice()`
-    ///
-    /// # Examples
-    /// ```
-    /// # use rust_runtime::hexstring::HexString;
-    /// let h = HexString::
-    ///
-    ///
-    #[inline(always)]
+    #[inline]
     #[must_use]
     pub fn as_bytes(&self) -> &[u8] {
         self.bytes.as_slice()
@@ -214,18 +203,22 @@ impl HexString {
     /// vector.
     ///
     /// Equivalent to `self.as_mut_vec().as_mut_slice()`
-    #[inline(always)]
+    #[inline]
     #[must_use]
     pub fn as_mut_bytes(&mut self) -> &mut [u8] {
         self.bytes.as_mut_slice()
     }
 
     /// Extracts a mutable reference to the underlying vector
+    #[inline]
+    #[must_use]
     pub fn as_mut_vec(&mut self) -> &mut Vec<u8> {
         &mut self.bytes
     }
 
     /// Extracts a reference to the underlying vector
+    #[inline]
+    #[must_use]
     pub const fn as_vec(&self) -> &Vec<u8> {
         &self.bytes
     }
@@ -243,11 +236,13 @@ impl HexString {
     /// Destructs a `HexString` into its underlying byte-vector
     #[inline]
     #[must_use]
-    pub fn into_vec(self) -> Vec<u8> {
+    pub fn into_inner(self) -> Vec<u8> {
         self.bytes
     }
 
     /// Returns `true` if the `HexString` has length 0
+    #[inline]
+    #[must_use]
     pub fn is_empty(&self) -> bool {
         self.bytes.is_empty()
     }
@@ -417,13 +412,27 @@ impl std::fmt::Display for HexString {
 impl FromIterator<u8> for HexString {
     fn from_iter<T: IntoIterator<Item = u8>>(iter: T) -> Self {
         Self {
-            bytes: <Vec<u8> as FromIterator<u8>>::from_iter(iter),
+            bytes: Vec::from_iter(iter),
         }
+    }
+}
+
+impl<'a> FromIterator<&'a u8> for HexString {
+    fn from_iter<T: IntoIterator<Item = &'a u8>>(iter: T) -> Self {
+        let mut bytes: Vec<u8> = Vec::new();
+        bytes.extend(iter);
+        Self { bytes }
     }
 }
 
 impl Extend<u8> for HexString {
     fn extend<T: IntoIterator<Item = u8>>(&mut self, iter: T) {
+        self.bytes.extend(iter)
+    }
+}
+
+impl<'a> Extend<&'a u8> for HexString {
+    fn extend<T: IntoIterator<Item = &'a u8>>(&mut self, iter: T) {
         self.bytes.extend(iter)
     }
 }
@@ -461,29 +470,33 @@ impl std::io::Write for HexString {
 }
 
 impl Target for HexString {
+    #[inline]
     fn anticipate(&mut self, extra: usize) {
         self.bytes.anticipate(extra)
     }
 
+    #[inline]
     fn create() -> Self {
         HexString { bytes: Vec::new() }
     }
 
+    #[inline]
     fn push_one(&mut self, b: u8) -> usize {
         self.bytes.push_one(b)
     }
 
+    #[inline]
     fn push_many<const N: usize>(&mut self, arr: [u8; N]) -> usize {
         self.bytes.push_many(arr)
     }
 
+    #[inline]
     fn push_all(&mut self, buf: &[u8]) -> usize {
         self.bytes.push_all(buf)
     }
 
-    fn resolve(&mut self) {
-        self.bytes.resolve()
-    }
+    #[inline]
+    fn resolve(&mut self) {}
 }
 
 impl From<HexString> for Vec<u8> {

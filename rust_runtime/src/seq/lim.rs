@@ -1,44 +1,125 @@
+//! Sequence-type with a limited number of elements
+//!
+//! This module defines [`LimSeq<T, N>`], a schema-specific construct that
+//! models sequences (as described in the super-module documentation) that holds
+//! no more than `N` elements of type `T`.
+//!
+//! Over-saturated values cannot be constructed without violating implementation
+//! boundaries, which may result in undefined behavior depending on internal
+//! implementation details.
+
+use crate::conv::{len::Estimable, target::Target, Decode, Encode};
 use crate::error::LengthError;
-use crate::parse::{Parser, error::ParseResult};
-use crate::conv::{Decode, Encode, len::Estimable, target::Target};
+use crate::parse::{error::ParseResult, Parser};
 use std::iter::FromIterator;
 use std::ops::{Deref, DerefMut};
 
 use super::boundedseq_impl::{BoundedSeqImpl, IsBoundedSeq};
 
 mod inner {
+    /// Type-alias used throughout the definition of [`LimSeq`](super::LimSeq)
+    /// instead of the actual type-name of the internal buffer-type, to allow
+    /// multiple alternate implementations to be written concisely.
+    ///
+    /// When the `arrayvec_limseq` feature is set,
+    /// this alias points to `arrayvec::ArrayVec<T, N>`
+    ///
+    /// Otherwise, it will default to `Vec<T>`
     #[cfg(feature = "arrayvec_limseq")]
     pub type Inner<T, const N: usize> = arrayvec::ArrayVec<T, N>;
 
+    /// Type-alias used throughout the definition of [`LimSeq`](super::LimSeq)
+    /// instead of the actual type-name of the internal buffer-type, to allow
+    /// multiple alternate implementations to be written concisely.
+    ///
+    /// When the `arrayvec_limseq` feature is set,
+    /// this alias points to `arrayvec::ArrayVec<T, N>`
+    ///
+    /// Otherwise, it will default to `Vec<T>`
     #[cfg(not(feature = "arrayvec_limseq"))]
     pub type Inner<T, const N: usize> = Vec<T>;
 
-    #[cfg(feature = "arrayvec_limseq")]
-    pub(crate) fn vectorize<T, const N: usize>(val: Inner<T, N>) -> Vec<T>
-    where T: Clone {
-        ::arrayvec::ArrayVec::as_slice(&val).to_vec()
+
+
+
+}
+
+/// Sequence type holding at most `N` elements of type `T`
+///
+/// Certain trait methods, such as [`FromIterator::from_iter`]
+/// and [`Extend::extend`], may panic when they would oversaturate
+/// a `LimSeq<T, N>` value.
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Hash)]
+pub struct LimSeq<T, const N: usize>(inner::Inner<T, N>);
+
+impl<T, const N: usize> LimSeq<T, N> {
+    /// Constructs a new, empty `LimSeq<T, N>`
+    pub fn new() -> Self {
+        Self::default()
     }
 
-    #[cfg(not(feature = "arrayvec_limseq"))]
-    pub(crate) fn vectorize<T, const N: usize>(val: Inner<T, N>) -> Vec<T>
-    where T: Clone {
-        val
+    /// Destruct a `FixSeq<T, N>` into a `Vec<T>` with the same contents
+    ///
+    /// Normally, this operation is a simple move,
+    /// but when the `arrayvec_limseq` feature is enabled,
+    /// this operation has additional overhead in converting
+    /// out of `arrayvec::ArrayVec`.
+    pub fn into_vec(self) -> Vec<T> {
+        #[cfg(feature = "arrayvec_limseq")]
+        {
+            self.0.into_iter().collect()
+        }
+        #[cfg(not(feature = "arrayvec_limseq"))]
+        {
+            self.0
+        }
     }
 
-    #[cfg(feature = "arrayvec_limseq")]
-    pub(crate) unsafe fn internalize<T, const N: usize>(mut value: Vec<T>) -> Inner<T, N> {
-        value.drain(..).collect()
+    /// Converts a `Vec<T>` into a `LimSeq<T, N>`
+    /// with the same contents, without checking that the length of the vector
+    /// is less than or equal to `N`.
+    ///
+    /// For a version of this function that performs this check, see
+    /// [`from_vec`].
+    ///
+    /// # Panics
+    ///
+    /// This method will panic if the `arrayvec_limseq` feature is enabled
+    /// and the length of `value` exceeds `N`.
+    ///
+    /// When `arrayvec_limseq` is not enabled, this method will not panic,
+    /// but will instead return an oversaturated collection that will result
+    /// in a panic when certain methods are called on it, most notably
+    /// methods of the [`Encode`](crate::conv::Encode) trait.
+    ///
+    /// # Safety
+    ///
+    /// This method does not perform unsafe operations, but is marked
+    /// as unsafe as it is intended only to be used when the length of
+    /// `value` is known in advance to be less than or equal to `N`.
+    pub unsafe fn from_vec_unchecked(value: Vec<T>) -> Self {
+        #[cfg(feature = "arrayvec_limseq")]
+        {
+            Self(value.into_iter().collect())
+        }
+        #[cfg(not(feature = "arrayvec_limseq"))]
+        {
+            Self(value)
+        }
     }
 
-    #[cfg(not(feature = "arrayvec_limseq"))]
-    pub(crate) unsafe fn internalize<T, const N: usize>(value: Vec<T>) -> Inner<T, N> {
-        value
+    /// Converts a `Vec<T>` into a `LimSeq<T, N>` with the same contents
+    ///
+    /// # Panics
+    ///
+    /// This method will panic if the length of `value` exceeds `N`
+    pub fn from_vec(value: Vec<T>) -> Self {
+        assert!(value.len() <= N, "cannot construct LimSeq from provided Vec without truncation");
+        unsafe { Self::from_vec_unchecked(value) }
     }
 }
 
-#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Hash)]
-#[cfg_attr(feature = "arrayvec_limseq", derive(Default))]
-pub struct LimSeq<T, const N: usize>(inner::Inner<T, N>);
+
 
 impl<T, const N: usize> IsBoundedSeq for LimSeq<T, N> {
     type Elem = T;
@@ -46,28 +127,35 @@ impl<T, const N: usize> IsBoundedSeq for LimSeq<T, N> {
     const LIMIT: usize = N;
 }
 
-impl<T, const N: usize> super::boundedseq_impl::BoundedSeqImpl for LimSeq<T, N> {
-    #[cfg(not(feature = "arrayvec_limseq"))]
+impl<T, const N: usize> BoundedSeqImpl for LimSeq<T, N> {
     unsafe fn push_unchecked(&mut self, value: T) {
-        Vec::<T>::push(&mut self.0, value)
-    }
-
-    #[cfg(feature = "arrayvec_limseq")]
-    unsafe fn push_unchecked(&mut self, value: T) {
-        ::arrayvec::ArrayVec::<T, N>::push_unchecked(&mut self.0, value)
+        #[cfg(not(feature = "arrayvec_limseq"))]
+        {
+            self.0.push(value)
+        }
+        #[cfg(feature = "arrayvec_limseq")]
+        {
+            self.0.push_unchecked(value)
+        }
     }
 }
 
-#[cfg(not(feature = "arrayvec_limseq"))]
 impl<T, const N: usize> std::default::Default for LimSeq<T, N> {
     fn default() -> Self {
-        Self(Vec::with_capacity(N))
+        #[cfg(not(feature = "arrayvec_limseq"))]
+        {
+            Self(inner::Inner::<T, N>::with_capacity(N))
+        }
+        #[cfg(feature = "arrayvec_limseq")]
+        {
+            Self(inner::Inner::<T, N>::new())
+        }
     }
 }
 
-impl<T: Clone, const N: usize> From<LimSeq<T, N>> for Vec<T> {
+impl<T, const N: usize> From<LimSeq<T, N>> for Vec<T> {
     fn from(val: LimSeq<T, N>) -> Self {
-        inner::vectorize::<T, N>(val.0)
+        val.into_vec()
     }
 }
 
@@ -97,8 +185,22 @@ impl<'a, T: 'a, const N: usize> IntoIterator for &'a LimSeq<T, N> {
 /// ***Panics*** if the iterator would yield more elements than could fit into
 /// the internal buffer without exceeding the length-limit.
 impl<T, const N: usize> std::iter::Extend<T> for LimSeq<T, N> {
+    /// Extends a `LimSeq` with the contents of an iterator
+    ///
+    /// # Panics
+    ///
+    /// This method will *panic* when the provided iterator yields more
+    /// items than the remaining unused capacity of `self`
+    ///
+    /// Will also panic if `self` is already over-saturated, which
+    /// is only possible when the `arrayvec_limseq` feature is not enabled.
     fn extend<I: IntoIterator<Item = T>>(&mut self, iter: I) {
-        let rem: usize = N - self.len();
+        let rem: usize = if cfg!(feature = "arrayvec_limseq") {
+            N - self.len()
+        } else {
+            N.checked_sub(self.len())
+                .unwrap_or_else(|| panic!("cannot extend already-oversaturated LimSeq"))
+        };
         let mut i = iter.into_iter();
         if i.by_ref().nth(rem).is_some() {
             panic!("attempted extend operation would overflow LimSeq capacity");
@@ -111,13 +213,13 @@ impl<T, const N: usize> std::iter::Extend<T> for LimSeq<T, N> {
 
 /// Create a `LimSeq<T, N>` from an iterator
 ///
-/// ***Panics*** if the number of elements in the iterator exceeds the LimSeq's capacity
+/// ***Panics*** if the number of elements in the iterator exceeds the `LimSeq`'s capacity
 impl<T, const N: usize> FromIterator<T> for LimSeq<T, N> {
     /// Create a `LimSeq<T, N>` from an iterator
     ///
     /// # Panics
     ///
-    /// Panics if the number of elements in the iterator exceeds the LimSeq's capacity.
+    /// Panics if the number of elements in the iterator exceeds the capacity `N`
     fn from_iter<I: IntoIterator<Item = T>>(iter: I) -> Self {
         let mut i = iter.into_iter();
         if i.by_ref().nth(N).is_some() {
@@ -127,6 +229,20 @@ impl<T, const N: usize> FromIterator<T> for LimSeq<T, N> {
         let ret = inner::Inner::<T, N>::from_iter(max_iter);
         debug_assert!(ret.len() <= N);
         Self(ret)
+    }
+}
+
+impl<T, const N: usize> Deref for LimSeq<T, N> {
+    type Target = [T];
+
+    fn deref(&self) -> &Self::Target {
+        self.0.deref()
+    }
+}
+
+impl<T, const N: usize> DerefMut for LimSeq<T, N> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.0.deref_mut()
     }
 }
 
@@ -158,22 +274,8 @@ impl<T, const N: usize> std::convert::TryFrom<Vec<T>> for LimSeq<T, N> {
                 actual: value.len(),
             })
         } else {
-            Ok(Self(unsafe { inner::internalize::<T, N>(value) }))
+            Ok(unsafe { Self::from_vec_unchecked(value) })
         }
-    }
-}
-
-impl<T, const N: usize> Deref for LimSeq<T, N> {
-    type Target = [T];
-
-    fn deref(&self) -> &Self::Target {
-        self.0.deref()
-    }
-}
-
-impl<T, const N: usize> DerefMut for LimSeq<T, N> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        self.0.deref_mut()
     }
 }
 
@@ -183,7 +285,7 @@ impl<T: Estimable, const N: usize> Estimable for LimSeq<T, N> {
     fn unknown(&self) -> usize {
         <Self as Deref>::deref(self)
             .iter()
-            .map(Estimable::unknown)
+            .map(Estimable::estimate)
             .sum()
     }
 }
@@ -194,15 +296,15 @@ impl<T: Encode, const N: usize> Encode for LimSeq<T, N> {
     }
 }
 
-impl<T: Decode, const N: usize> Decode for LimSeq<T, N>
+impl<T, const N: usize> Decode for LimSeq<T, N>
 where
-    Self: std::default::Default,
+    T: Decode,
 {
     fn parse<P: Parser>(p: &mut P) -> ParseResult<Self> {
-        let mut seq: Self = <LimSeq<T, N> as Default>::default();
+        let mut seq = Self::new();
 
         while p.remainder() != 0 {
-            BoundedSeqImpl::try_push(&mut seq, T::parse(p)?)?;
+            seq.try_push(T::parse(p)?)?;
         }
 
         Ok(seq)

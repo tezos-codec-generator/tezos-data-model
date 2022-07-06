@@ -26,10 +26,8 @@ where
     /// Even in cases where there is no risk of Undefined Behavior, this method
     /// may append beyond the expected capacity of a bounded-length collection
     /// type; doing so may thwart optimizations, and even produce
-    /// runtime panics when infallible operations, such as [`Encode`] operations, are
+    /// runtime panics when infallible operations, such as [`Encode`](crate::conv::Encode) operations, are
     /// called on such oversaturated collections.
-    ///
-    /// [`Encode`]: crate::conv::Encode
     unsafe fn push_unchecked(&mut self, value: Self::Elem);
 
     /// Attempt to add an element to the end of the bounded sequence.

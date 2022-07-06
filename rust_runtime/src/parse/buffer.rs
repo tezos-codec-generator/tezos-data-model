@@ -253,7 +253,7 @@ impl<const N: usize> From<&'_ [u8; N]> for VecBuffer {
 
 impl From<HexString> for VecBuffer {
     fn from(hex: HexString) -> Self {
-        Self(hex.into_vec())
+        Self(hex.into_inner())
     }
 }
 

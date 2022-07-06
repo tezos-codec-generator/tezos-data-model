@@ -1,78 +1,275 @@
-# `rust_runtime`
+# `runtime`/`rust_runtime`
 
-The `rust_runtime` library crate contains the common utility code that generated Rustlang codec modules are built around.
+The `runtime` package consists of a library, `rust_runtime`, with common utility
+code for codec modules generated in the Rust language, through the
+`codec_generator` compilation pipeline.
 
-Also contained in this directory are sub-crates defining derive macros for three key traits in the runtime:
+As the project is still under experimental development, many aspects of `runtime`
+may be subject to change as it evolves: the name of the package itself or the library
+it contains, where it is hosted, the overall API design, its dependency list, and
+its implementation details are among these variable details.
 
-- `decode_derive` for the `Decode` trait
-- `encode_derive` for the `Encode` trait
-- `estimable_derive` for the `Estimable` trait
+Consequently, the outline and description provided here may refer to renamed,
+relocated, redesigned, and even removed items, though efforts to keep it up-to-date
+are ongoing. Nevertheless, reader discretion is advised, and documentation comments
+local to the package may be more accurate on a case-by-case basis.
 
-As the `codec_generator` project is not yet stable, both the design, API, and implementation specifics of this crate
-are subject to change at any point. On account of this, this readme may not always be up-to-date, and so reader
-discretion is advised.
+This document is intended to serve as a general guide to the package, in terms of
+the design model it is based on, and pertinent API details, especially those that
+are less likely to be changed drastically. Specific implementation details may
+be found in the in-library documentation as applicable.
 
-This README is intended to serve as a general guide for the model, and design approach, of the `rust_runtime` crate, rather
-than a comprehensive summary of the actual implementation.
+## Overview
 
-## High-Level Approach
+The `rust_runtime` library is intended to provide a flexible and potentially
+interchangeable framework, in terms of which lightweight and portable codec
+modules can be produced. This requires a certain amount of API-specific
+hard-coding in the `codec_generator` tool itself, but most of the implementation
+details are kept opaque so that they may be changed according to the evolving
+and potentially conflicting requirements of the potential adopters of this
+project's approach.
 
-The `rust_runtime` library crate is built around a model of structurally inductive transcoding using two traits:
+The primary role of the library consists of simplifying the boilerplate
+requirements of specifying the serialization/deserialization strategies
+of user-defined types. To that end, two core *traits* are defined by
+the library, one for serialization and one for deserialization, along
+with a set of custom primitive and complex types specific to the
+`data-encoding` schema, which can be used as building-blocks of
+arbitrarily complex (at least in theory) codec type definitions.
+
+### High-Level Approach
+
+The `rust_runtime` library is built around a model of structurally inductive transcoding using two traits:
 
 - `Encode` :
   Trait marking a type as serializable.
-  The most stable property of this trait is the definition of a method `encode` of type `(&self) -> X`, where `X` is some
-  type suited for the representation of variable-length strings of binary data.
-  This may either be a concrete type, or a generic-type satisfying particular trait bounds.
+  The most stable property of this trait is the definition of a method `encode` of type `fn(&self) -> X`, where `X` is some
+  type suited for the representation of variable-length byte-sequences.
+  `X` may either be a concrete type, or a generic-type satisfying appropriate trait bounds.
 - `Decode` :
   Trait marking a type as deserializable.
-  The most stable property of this trait is the definition of a method `decode`of type `(&X) -> Self`, where `X` is some
-  type that can be interpreted as a sequence of byte-values, to be parsed in an incremental fashion.
-  This may either be a concrete type, or a generic-type satisfying particular trait bounds.
+  The most stable property of this trait is the definition of a method `decode` of type `fn(X) -> Self`, where `X` is some
+  type that has a natural interpretation as serial binary data, to be parsed according to the structural definition of the
+  implementing type in question.
+  `X` may either be a concrete type, or a generic-type satisfying appropriate trait bounds.
 
-These essential details are unlikely to change, and even less likely to change drastically.
-Note that while the methods listed above are 'minimum requirements' in a design sense, at the level of
-the trait definition, it is safe to assume that the required set of implemented methods consists of
-some unspecified set of low-level methods, in terms of which `encode` and `decode` are given default implementations.
+These essential details are unlikely to change, and even if they do, they are fundamental enough that
+such changes should be minor.
 
-As of the time this README was last revised, all broad categories of
-Ocaml-based schemata (values of type `'a Data_encoding.Encoding.t`) are
-assumed to be covered by the logic of the compiler, in tandem with this
-runtime library. However, that does not mean that every schemata will
-be supported by the `codec_generator` pipeline, that the produced module
-will be free of errors, or that an error-free codec module will be bug-free
-and behave 'correctly' (i.e. equivalently to transcoding operations based directly
-in Ocaml and `data-encoding`).
+Note that while the methods listed above are 'essential requirements' in a design sense,
+they are currently given default implementations in terms of lower-level methods of the
+respective traits, and are therefore not 'required methods' of the trait as far as
+the Rust compiler is concerned.
 
-## Internal Approach and Abstraction
+As of the time this README was last revised, all broad categories of Ocaml-based
+schemata (values of type `'a Data_encoding.Encoding.t`) are assumed to be
+covered by the logic of the compiler, in tandem with this runtime library.
+However, that does not mean that every schema will be supported by the
+`codec_generator` pipeline, that the produced module will be free of errors, or
+that an error-free codec module will be bug-free and behave 'correctly' (i.e.
+equivalently to transcoding operations based directly in Ocaml and
+`data-encoding`).
 
-As of the current iteration of the `rust_runtime` library, the details of `Encode` and `Decode` are refined beyond the bare minimum methods listed above, and in turn rely on other definitions in the library to be used effectively. Those methods, and the constructs
-they rely upon, are listed below:
+### Internal Approach and Abstraction
+
+As of the current iteration of the `rust_runtime` library, the details of
+`Encode` and `Decode` are refined beyond the bare minimum methods listed above,
+and in turn rely on other definitions in the library to be used effectively.
+Those methods, and the constructs they rely upon, are listed below:
 
 - `Encode`:
   - `write_to<U: Target>(&self, buf: &mut U) -> usize` :
-    Appends the full sequence of bytes of the codec-compatible serialization of `self`, to the mutably borrowed destination object,
-    of a generic type bound by the trait [`Target`](#target), also defined in the runtime. The returned value is the total number of
-    bytes that were written by the call.
-    This is the lowest-level method, and the only one that is required for implementors to define.
-  - `write_to_vec(&self, buf: &mut Vec<u8>) -> ()` :
-    A variant of `write_to` specialized to `Vec<u8>`, without an informative return value. This method is given a default implementation
-    in terms of `write_to` through the included `impl Target for Vec<u8>` item, but can be overwritten if a more directly efficient
-    implementation is possible based on details of the `Self` type in question.
+    Appends the full sequence of bytes of the codec-compatible serialization of
+    `self`, to the mutably borrowed destination object, of a generic type bound
+    by the trait [`Target`](#target), also defined in the runtime. The returned
+    value is the total number of bytes that were written by the call. This is
+    the lowest-level, and the only required (non-default) method.
+  - `write_to_vec(&self, buf: &mut Vec<u8>)` :
+    A variant of `write_to` specialized to `Vec<u8>`, without an informative
+    return value. This method is given a default implementation in terms of
+    `write_to` based on the definition of `impl Target for Vec<u8>`. However,
+    for certain types predisposed to array-like operations, this method may be
+    overridden with a more direct implementation.
+  - `encode<U: Target>(&self) -> U`:
+    Combines the semantics of `write_to` with the creation of a novel
+    `U: Target` object, instantiating and returning a `U`-value containing
+    the full serialization of `self`. This method is given a default implementation
+    that should only realistically be overwritten for zero-width codecs.
   - `to_bytes(&self) -> Vec<u8>` :
-    An analogue of `write_to_vec` that returns a new `Vec<u8>` buffer rather than mutating an existing buffer passed in as an argument.
-    In most cases, the default implementation (which calls `Vec::new()` followed by `Self::write_to_vec`) is adequate. In certain cases, such as when `self` is either itself, or a shallow wrapper around, a byte-oriented buffer, this definition may be overwritten with a `.clone()` or `.to_vec()` operation or similar.
-  - `encode<U: Target>(&self) -> U` : produces an object of the specified or compiler-inferred type `U` subject to the trait bounds of implementing an instance of [`Target`](#target). This has a default implementation using `write_to()`.
+    Derivative method of `write_to_vec` that creates a new `Vec<u8>` instead of taking
+    one as an argument. The return value is this novel buffer after it has been populated
+    using `write_to_vec`.
+    As with the method it is based on, already array-like types may be able to implement
+    this method more efficiently than the default definition, such as using `Vec::clone` or
+    `to_vec()` methods on certain `u8`-oriented array-like types.
 - `Decode`:
-  - `parse<P: Parser>(p: &mut P) -> Self` : uses a mutably borrowed generic object of any type implementing the [`Parser`](#parser) trait, returning a value of type `Self` by consuming from the current parser-head until enough bytes have been read to deserialize; this method will panic if the parse operation internally called returns an `Err(ParseError)` value.
-  - `decode<U: ToParser>(input: &U) -> Self`: combined operation of constructing a `P: Parser` object from a [`ToParser`](#toparser) bounded generic, and calling `Self::parse` over the returned value (default implementaion). There is no compelling reason to override
-  the default implementation, as it is merely intended to avoid boilerplate and does not obviously introduce any unnecessary overhead
-  in any known edge-cases.
+  - `parse<P: Parser>(p: &mut P) -> ParseResult<Self>` :
+    Consumes and interprets bytes from from a mutably borrowed value
+    of a generic type `P` implementing the [`Parser`](#parser) trait.
+    It is expected and intended that this method short-circuit on `Err(_)` values
+    returned by any internal calls to `Parser` methods or other `<T as Decode>::parse`
+    calls, which is facilitated by the `?` operator. If no error is encountered, the
+    return value will be `Ok(val)` where `val: Self` is the interpreted value of the
+    consumed bytes.
+  - `try_decode<U, P>(input: U) -> DecodeResult<Self>`:
+    Converts an `input` value of type `U: TryIntoParser<P>` where `P: Parser`,
+    parses it according to `Self::parse`. If either the conversion from `input`
+    into a parser object, or the parse operation itself results in failure,
+    the corresponding error is returned, wrapped in the broader error-type
+    `DecodeError`. Otherwise, the return value will be that of the `parse` call.
+    If the feature-flag `"check_complete_parse"` is explicitly enabled,
+    this method will also perform a post-check to ensure that no extraneous
+    bytes were left in the parser's buffer following the `parse` operation,
+    returning an indicative error if this condition is violated. While normally
+    this kind of validation is unnecessary and imposes overhead on every
+    `try_decode` operation, it is potentially desirable to catch implementation
+    bugs that might otherwise go unnoticed when the incompletely consumed parser
+  - `decode_memo<U>(input: U) -> Self`:
+    Derived method of `try_decode` specialized to the [`MemoParser`](#memoparser)
+    type, which attempts to unwrap the result of `try_decode<U, MemoParser>(input)`
+    in the default implementation. This method is intended primarily for debugging
+    purposes while the project is still experimental, and may be deprecated later on.
+  - `decode<U>(input: U) -> Self`:
+    Derived method of `try_decode` specialized over [`ByteParser`](#byteparser),
+    which, like `decode_memo`, panics instead of propogating any errors returned
+    by `try_decode`.
+
+## Auxilliary Traits
+
+In addition to `Encode` and `Decode`, this library defines a small number of auxilliary
+traits related specifically to the tasks of serialization/deserialization, but which
+are neither specific to the schema language of `data-encoding`, nor inextricably
+tied to the design of `Encode` and `Decode`. Nevertheless, these traits are variously
+relied upon in the current definitions of `Encode` and `Decode`, even if only
+by name and not necessarily by implementation specifics.
+
+### Parser
+
+The `Parser` trait is used to define a common set of primitive operations on
+a variety of parser models, based on a small selection of low-level methods.
+The following are the essential requirements for a `Parser` implementation:
+
+- The associated type `Buffer`, into which an offset is maintained and whose binary data is consumed incrementally
+- A constructor `from_buffer(buffer: Self::Buffer) -> Self`, which should never fail
+- The state-query methods:
+  - `.view_len()`
+  - `.offset()`
+- The context-window manipulation methods:
+  - `.set_fit(n: usize) -> ParseResult<()>`
+  - `.test_target() -> ParseResult<bool>`
+  - `.enforce_target() -> ParseResult<()>`
+- The primitive consume operations:
+  - `consume_byte(&mut self) -> ParseResult<u8>`
+  - `consume(&mut self, nbytes: usize) -> ParseResult<&[u8]>`
+- `cleanup(mut self)`, which handles the validated cleanup of a potentially underconsumed parser
+
+In terms of these methods, `Parser` provides default implementations for a
+variety of operations named `take_*`, which consume a certain number of bytes
+and return a value of a certain type, in both cases specific to the method in
+question.
+
+Though not a trait bound, the provided implementations of `Parser` also implement
+`Iterator<Item = u8>`, based on the `Parser::consume_byte` method.
+
+#### Context-Windows
+
+In order to facilitate bounds-setting and bounds-checking for dynamically sized elements with length prefixes,
+we use a model of *context windows*, which are conceptually a stack
+of monotonically (but not always strictly) narrowing target offsets.
+
+Until it is properly closed, a *context window* presents an inescapable narrowed view of the buffer
+in question, and any consume-based operation that would require more bytes than are in the current-narrowest
+context-window is contractually mandated to return an error.
+
+The term 'context-frame', or simply 'frame', is also used to refer to the same model, while
+'target-offset' specifically refers to the end of a given window.
+
+#### Parser Invariants
+
+The following properties should be respected by each type `P` that implements `Parser`:
+
+1. For a buffer `buf` containing `N` bytes, with the assignment `let p = P::from_buffer(buf)`:
+  a. `p.offset()` should be `0`
+  b. `p.view_len()` should be `N`
+  c. `p.remaining()` should be `N`
+2. The method `fn remaining(&self) -> usize` should:
+  a. Have `p.remaining() == p.view_len() - p.offset()` at all times
+  b. If `p.remaining() == m` before a call to `p.consume(n)` for `m >= n`, a subsequent call should have `p.remaining() == m - n`
+  c. If `p.remaining() == m` before a call to `p.set_fit(n)` for `m >= n`, a subsequent call should have `p.remaining() == m`
+3. A call `p.consume(n)` should:
+  a. Always fail when `nbytes > p.remaining()`, and always succeed when `nbytes <= p.remaining()`
+    i. Consequently, `p.consume(0)` must always succeed
+  b. Return only `Ok(val)` for `val.len() == n`
+4. A call `p.consume_byte()` should:
+  a. Be indistinguishable, apart from return value, from `p.consume(1)`
+    i. From (2b), `p.remaining() >= 1` should be decremented by 1 following such a call
+    ii. From (3a), fail whenever `p.remaining() == 0` and succeed otherwise
+  b. Return `Ok(b)` when and only when `p.consume(1)` would have returned `Ok(&[b])`
+5. `p.set_fit(m)` should:
+  a.  Always fail when `m > p.remaining()`, and always succeed when `m <= p.remaining()`
+    i. Consequently, `p.set_fit(0)` must always succeed
+  b. Cause a new context window to be created upon success
+6. A call `p.enforce_target()` should:
+  a. Fail if and only if one of the following apply:
+    i. There are no open context-windows
+    ii. The innermost target offset has not been reached
+    iii. The inner most target offset has somehow been exceeded
+  b. Upon success, close the innermost context-window
+7. A call `p.test_target()` should:
+  a. Return a value equal to the theoretical return value of `p.enforce_target().is_err()`
+  b. Have no effect on the context-window state
+
+#### ByteParser
+
+The `ByteParser` type is the primary intended-use implementing type of `Parser`.
+As a struct, `ByteParser` consists of an immutable byte-buffer and a mutable
+offset-tracker, which also stores context-window state. Consume operations
+advance the offset without mutating the buffer itself, and so already-consumed
+bytes can theoretically be introspected up until the destructor is called on the
+`ByteParser` itself.
+
+#### MemoParser
+
+`MemoParser` is a specialized variant of `ByteParser`, designed primarily for
+debugging purposes.  Compared to `ByteParser`, it has a slight overhead in both
+memory footprint and performance, but leverages the non-destructive nature of
+`ByteParser` consume operations to provide 'backtraces' that indicate which
+bytes in the original buffer were consumed as part of the same method call.
+These traces are only produced when an error case is encountered.  As its
+purpose is mostly to catch implementation bugs, it may be deprecated, and is
+otherwise not recommended for performance-sensitive consumers.
+
+#### SliceParser
+
+`SliceParser<'a>` is an alternative model of `Parser` from `ByteParser`. In contrast
+to the immutable-buffer, mutable-offset approach of `ByteParser`, `SliceParser<'a>`
+maintains a mutable, windowed buffer that is incrementally consumed destructively.
+The offset is implicitly always zero, as the buffer is truncated with every consume
+operation. It also holds a lifetime parameter, as the internal binary store it uses
+consists of a stack of lifetime-annotated slices of the buffer it was created from.
+
+#### TryIntoParser
+
+The `TryIntoParser<P : Parser = ByteParser>` trait is implemented for all types that can be used to construct
+a parser-object of type `P` (`ByteParser` when not explicitly listed otherwise).
+It has an associated type `Error`, and a single required method, `try_into_parser()`.
+
+While the specific trait bounds may vary, a blanket implementation of `TryIntoParser` is
+provided for types satisfying, at the bare minimum, `TryInto<P::Buffer>`, as well as other
+possible trait bounds.
+
+There is a slight ambiguity as to whether the `.try_to_parser()` definition for
+`String` and `&str` should assume the string is formatted as raw binary, or
+encoded as a hex-string. The current model assumes that strings are parsed as
+binary, with a feature-flag `"implicit_hexstring"` that causes such types to be
+(fallibly) interpreted as hex-strings before conversion into a parser object.
 
 ### Target
 
-The trait `Target` is an abstraction over types that store an in-order traversible sequence of bytes, which, once written, are never
-subsequently modified. In this way, it may be thought of as a specialized analogue of `std::io::Write`.
+The trait `Target` is an abstraction over types that store an in-order
+traversible sequence of bytes, which, once written, are never subsequently
+modified. In this way, it may be thought of as a specialized analogue of
+`std::io::Write`.
 
 The provided implementing types of `Target` are as follows:
 
@@ -89,54 +286,17 @@ The current implementation of `Target` consists of the following methods:
 - `push_all(&mut self, b: &[u8]) -> usize`: Appends a byte-slice of unknown length to the Target object, in order. Will and must always return the length of the slice.
 - `resolve(&mut self)`: When applicable, indicate in some fashion that the current final index of the byte-sequence is a partition point between two logically distinct serialized values. Most of the time, this method will be a no-op.
 
-#### Target-related Macros
-
-In addition to the
-
 ### Builder
 
-The trait `Builder` is an abstraction over types representing fragments of an intermediate type that can ultimately be finalized and written as a byte-vector, hex-string, or binary string. It includes trait bounds that allow homogenously typed Builders to be
-concatenated using a monoidal append operation by way of the `+` operator or its `std::ops::Add::add` form.
-
-### Parser
-
-The trait `Parser` is an abstraction over types representing a stateful parse-object, which has default implementations for a variety of monomorphic `get_*` methods in terms of primitive required methods, including `.len()` and `.offset()` for querying internal state, and state-mutational method `.consume(nbytes)`, and the context-window operations `.set_fit(n)`, `.test_target()`, and `.enforce_target()`. It also has a trait bound of `Iterator<Item = u8>` that exposes the `.next() -> Option<&u8>` method to the monomorphic parser default implementations, which is used for `get_u8`, `get_i8`, and `get_bool`.
-
-#### Context Windows
-
-In order to facilitate bounds-setting and bounds-checking for dynamically sized elements with length prefixes,
-we use a model of *context windows*, which are conceptually (though not necessarily implementationally) a stack
-of target offsets, which may in fact be decremented counters in the case of slice-based parsers, or fixed values
-of the mutating parse-head for buffer-based implementations such as [`ByteParser`](#byteparser).
-
-The following properties should be respected by each implementation of the `Parser` trait:
-
-- A fresh `p : impl Parser` object should have `p.offset() == 0` and `p.len()` equal to the length of the parse-buffer
-- `self.len() - self.offset()` is the largest possible `n` for which `self.consume(n)` returns an `Ok(_)` value, which should also be the largest possible `n` for which `self.set_fit(n)` succeeds. Both should fail for any greater values of `n`, either through `Err(_)` returns or panics.
-- The value of `self.len() - self.offset()` before and after a call to `self.consume(n)` should represent a decrease by `n` if the consume call is an `Ok(_)` value, or remain unchanged if it is an `Err(_)` value. Only one of `self.len()` and `self.offset()` should change in this fashion.
-- `self.set_fit(m)` should fail whenever `self.len() < m + self.offset()`, and succeed otherwise
-- Immediately after a successful call of `self.set_fit(n)`, `self.len() == n + self.offset()` should hold.
-- `self.test_target()` should return `true` if and only if `self.offset() == self.len()` holds with at least one context window present
-- `self.enforce_target()` should remove the most recently set target if `self.test_target()` would return true, and panic otherwise
-
-#### ByteParser
-
-`ByteParser` is the included implementor of `Parser`, which operates on an approach of holding an immutable buffer of bytes and a mutable offset-tracker. The context-window methods are propogated to the offset-tracker itself, which is responsible for determining
-the current state of the parser, and is the only mutable element of the `ByteParser`.
-
-#### ToParser
-
-The `ToParser` trait is used to indicate how values of various types are to be pre-processed into a fresh `ByteParser` object.
-This is done via the `.to_parser()` method, which is the only exposed method and must be defined by each implementer. In a
-context where `ByteParser` has been replaced by an alternate `Parser` implementer, the return type for `.to_parser()` should be revised.
-
-There is a slight ambiguity as to whether the `.to_parser()` definition for `String` and `&str` should assume the string is formatted as raw binary or expanded 2-byte hex words, in which the former is more natural but has corner cases in which the byte sequence we wish to
-represent could not be coerced into a `String` for whatever reason (either `0x00` or malformed unicode sequences). As of the current
-implementation, `String` and `&str` are treated as raw binary byte-strings, though this may change.
+The trait `Builder` is an abstraction over types representing fragments of an
+intermediate type that can ultimately be finalized and written as a byte-vector,
+hex-string, or binary string. It may eventually be deprecated.
 
 ### HexString
 
-`HexString` is a newtype around `Vec<u8>` that is used as an intermediate for serialization, and a pre-processed value for explicit
-hexadecimal interpretation of `&str` values we wish to parse via `ToParser::to_parser()`. It exposes a `hex!()` macro that performs
-conversion from a `String`, `&str`, or various `u8`-buffer (array, slice, vector) types into a `HexString`, which may panic if the
-conversion cannot be performed.
+`HexString` is a newtype around `Vec<u8>` that is used as an intermediate for
+serialization, and a pre-processed value for explicit hexadecimal interpretation
+of `&str` values we wish to parse via `TryIntoParser::try_into_parser()`. It
+exposes a `hex!()` macro that performs conversion from a `String`, `&str`, and
+similar types into a `HexString`, which may panic if the conversion cannot be
+performed.

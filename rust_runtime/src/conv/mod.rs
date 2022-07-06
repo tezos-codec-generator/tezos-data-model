@@ -91,7 +91,7 @@ pub trait Encode {
     }
 }
 
-/// Extension traiserialt for `Encode` with serialization-length oracles
+/// Extension trait for `Encode` with serialization-length oracles
 ///
 /// This trait defines additional methods on an `Encode` type, which allow
 /// for zero-allocation computations of the number of bytes in the serialization

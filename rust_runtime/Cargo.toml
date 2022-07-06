@@ -1,7 +1,15 @@
 [package]
 name = "runtime"
+description = "Common utility code for Octez codecs in Rust"
 version = "0.1.0"
-edition = "2018"
+edition = "2021"
+license = "MIT"
+authors = ["Nomadic Labs"]
+categories = ["encoding", "parsing", "compilers", "api-bindings"]
+keywords = ["Tezos", "data-encoding"]
+publish = false
+repository = "https://gitlab.com/archaephyrryx/data-encoding"
+readme = "README.md"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -24,6 +32,7 @@ unfreeze_spanbuffer = []
 smallvec_framestack = ["smallvec"]
 
 [dependencies]
+cfg-if = "1.0.0"
 lazy_static = "1.4.0"
 num-bigint = "0.4.3"
 num-integer = "0.1"

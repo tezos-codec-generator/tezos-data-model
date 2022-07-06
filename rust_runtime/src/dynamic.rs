@@ -1,57 +1,66 @@
 //! Wrapper types for variable-length values
 //!
-//! This module provides wrapper types that model
-//! the two main patterns by which values of variable
-//! serialization length can be parsed unambiguously
-//! in the context of an arbitrary `data-encoding` binary schema.
+//! This module provides wrapper types that model the two constructs used for
+//! handling unambiguous parsing of schema elments of variable binary length.
 //!
 //! # Dynamic Wrappers
 //!
 //! ## [`Dynamic<S, T>`]
 //!
-//! The first approach that is modeled here is to explicitly
-//! wrap such elements in a dynamic context, which consists of
-//! a 1, 2, or 4[*] byte prefix, to be understood as an unsigned
-//! integer of the appropriate width, and whose value is precisely
-//! how many bytes immediately following said prefix, belong to
-//! the element enclosed in the dynamic wrapper.
+//! The primary, and far more general-purpose approach used, is
+//! to precede a variable-length component with a length-prefix
+//! indicating, as an unsigned integer, how many bytes said
+//! component occupies. Such a prefix is either 1, 2, or 4 bytes in length, corresponding to the ranges
+//! of `u8`, `u16`, and [`u30`][uthirty] (and not, in fact, `u32`).
 //!
-//! For this approach, the type `Dynamic<S, T>` is defined, which
-//! represents a value of generic type `T` that is to be encoded,
-//! and decoded, using a prefix of type `S: LenPref`, a public
-//! trait that is sealed, with implementations only for [`u8`],
-//! [`u16`], and [`u30`](../int/type.u30.html).
+//! Accordingly, this module defines the type `Dynamic<S, T>`, which
+//! represents a value of payload type `T` that is encoded and decoded
+//! using a prefix of type `S` satisfying the trait bound of [`LenPref`].
+//! Said trait is also defined in this module, and sealed, with only three
+//! implementing types: [`u8`], [`u16`], and [`u30`][uthirty]
 //!
 //! ## [`VPadded<T, N>`]
 //!
-//! In the `data-encoding` binary schema, variable-length elements
-//! may be written and parsed without any preceding context that
-//! would explicate their length, provided the following conditions
-//! hold:
-//!   * They are an element contained within a larger context whose
-//!     total length can already be inferred
-//!   * The total length of all subsequent elements within the same
-//!     context is a known constant `N`
+//! In certain cases, variable-length schema elements appearing within
+//! a surrounding contents whose total length is known, may be encoded
+//! and decoded transparently, provided that the combined length of
+//! all subsequent elements in the same context is a known constant.
 //!
 //! To handle such cases, a wrapper type `VPadded<T, N>` is defined,
-//! which associates with the type `T` of the actual element appearing
-//! in that position, the constant `N` equal to the total length of the
-//! following elements.
+//! which represents a payload value `T` that is followed, in the innermost
+//! context in which it appears, by exactly `N` total bytes of subsequent
+//! values.
 //!
 //! In terms of serialization via the [`Encode`] trait, `VPadded<T, N>`
-//! is identical to `T`.
-//!
-//! In terms of deserialization, `VPadded<T, N>` acts as a 'virtually padded'
+//! is identical to `T`. In terms of deserialization, `VPadded<T, N>`
+//! acts as a 'virtually padded'
 //! version of `T`: a novel context is spawned that covers all but
 //! the last `N` bytes of the current context, and the parsing of `T` is
 //! bound to the limited context. Provided that `T` parses successfully in
 //! this restricted view, this limit is removed so that the subsequent
 //! elements can parse the final `N` bytes of the original view.
+//!
+//! # Generic Order
+//!
+//! It may be slightly counter-intuitive that, while in both `VPadded<T, N>`
+//! and `Dynamic<S, T>`, `T` is the payload type, it appears as the first
+//! parameter for the former and the second for the latter. It is suggested
+//! that this choice is perhaps more intuitive than a consistent order:
+//! namely, `Dynamic<S, T>` is encoded with a value of type `S` preceding
+//! the payload and therefore `S` is the first generic paramter; and for
+//! `VPadded<T, N>`, `N` represents the number of bytes following `T`,
+//! and is therefore the second genreic paramter.
+//!
+//! The names for the parameters in question, and the order in which they
+//! appear, may be subject to change in later releases.
+//!
+//! [uthirty]: crate::int::u30
 
 use crate::conv::len::{Estimable, FixedLength};
 use crate::conv::{Decode, Encode, EncodeLength};
 use crate::int::u30;
 use crate::parse::{ParseResult, Parser};
+use std::borrow::Borrow;
 use std::convert::TryFrom;
 use std::fmt::{Debug, Display};
 use std::hash::Hash;
@@ -85,6 +94,8 @@ impl<S: LenPref, T> Dynamic<S, T> {
     /// where `M` is the maximum value in the range of `S`;
     /// this check is only done during the encoding step, and
     /// will result in a panic if this condition is violated.
+    #[inline]
+    #[must_use]
     pub fn new(contents: T) -> Self {
         Self {
             contents,
@@ -98,88 +109,93 @@ impl<S: LenPref, T> Dynamic<S, T> {
     /// This is mostly useful when attempting to extract the payload
     /// values from a codec type that holds `Dynamic<S, T>`, after
     /// the codec type has been decoded.
+    #[inline]
+    #[must_use]
     pub fn into_inner(self) -> T {
         self.contents
     }
 
-    /// Computes the length prefix of the contents of a `Dynamic<S, T>`, mapped
-    /// into the length-prefix type `S`.
+    /// Attempt to represent the binary width of the payload `T`-value of `self`
+    /// in the range of the length-prefix type `S`.
     ///
-    /// If the actual length exceeds the maximum representable value of `S`, a
-    /// `ConstraintError` is returned.
+    /// # Errors
+    ///
+    /// If the number of bytes in `T` exceeds the maximum legal value of `S`,
+    /// `WidthError::TooWide` is returned.
+    #[inline]
     pub fn length_prefix(&self) -> Result<S, crate::error::WidthError>
     where
         T: EncodeLength,
     {
         let actual: usize = <T as EncodeLength>::enc_len(&self.contents);
-        let limit: usize = S::max_len();
-        if actual > limit {
-            Err(crate::error::WidthError::TooWide { limit, actual })
-        } else {
-            Ok(unsafe { <usize as std::convert::TryInto<S>>::try_into(actual).unwrap_unchecked() })
+        match S::try_from(actual) {
+            Ok(x) => Ok(x),
+            Err(_err) => {
+                let limit: usize = S::max_len();
+                debug_assert!(
+                    actual > limit,
+                    "unexpected Err in {}::try_from({actual})",
+                    <S as LenPref>::suffix(),
+                );
+                Err(crate::error::WidthError::TooWide { limit, actual })
+            }
         }
     }
 }
 
-pub mod impls {
-    use std::borrow::Borrow;
-
-    use super::*;
-
-    impl<S: LenPref, T> Ord for Dynamic<S, T>
-    where
-        T: Ord,
-    {
-        fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-            self.contents.cmp(&other.contents)
-        }
+impl<S: LenPref, T> PartialOrd for Dynamic<S, T>
+where
+    T: PartialOrd,
+{
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        self.contents.partial_cmp(&other.contents)
     }
+}
 
-    impl<S: LenPref, T> PartialOrd for Dynamic<S, T>
-    where
-        T: PartialOrd,
-    {
-        fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-            self.contents.partial_cmp(&other.contents)
-        }
+impl<S: LenPref, T> Ord for Dynamic<S, T>
+where
+    T: Ord,
+{
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.contents.cmp(&other.contents)
     }
+}
 
-    impl<S: LenPref, T> PartialEq for Dynamic<S, T>
-    where
-        T: PartialEq,
-    {
-        fn eq(&self, other: &Self) -> bool {
-            self.contents.eq(&other.contents)
-        }
+impl<S: LenPref, T> PartialEq for Dynamic<S, T>
+where
+    T: PartialEq,
+{
+    fn eq(&self, other: &Self) -> bool {
+        self.contents.eq(&other.contents)
     }
+}
 
-    impl<S: LenPref, T> Eq for Dynamic<S, T> where T: Eq {}
+impl<S: LenPref, T> Eq for Dynamic<S, T> where T: Eq {}
 
-    impl<S: LenPref, T> Hash for Dynamic<S, T>
-    where
-        T: Hash,
-    {
-        fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-            self.contents.hash(state);
-        }
+impl<S: LenPref, T> Hash for Dynamic<S, T>
+where
+    T: Hash,
+{
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.contents.hash(state);
     }
+}
 
-    impl<S: LenPref, T> Borrow<T> for Dynamic<S, T> {
-        fn borrow(&self) -> &T {
-            &self.contents
-        }
+impl<S: LenPref, T> Borrow<T> for Dynamic<S, T> {
+    fn borrow(&self) -> &T {
+        &self.contents
     }
+}
 
-    impl<S: LenPref, T> AsRef<T> for Dynamic<S, T> {
-        fn as_ref(&self) -> &T {
-            &self.contents
-        }
+impl<S: LenPref, T> AsRef<T> for Dynamic<S, T> {
+    fn as_ref(&self) -> &T {
+        &self.contents
     }
+}
 
-    impl<S: LenPref, T> AsMut<T> for Dynamic<S, T> {
-        fn as_mut(&mut self) -> &mut T {
-            &mut self.contents
-        }
+impl<S: LenPref, T> AsMut<T> for Dynamic<S, T> {
+    fn as_mut(&mut self) -> &mut T {
+        &mut self.contents
     }
 }
 
@@ -193,8 +209,9 @@ impl<S: LenPref, T: Estimable> Estimable for Dynamic<S, T> {
         }
     };
 
+    #[inline]
     fn unknown(&self) -> usize {
-        <S as FixedLength>::LEN + self.contents.estimate()
+        <S as FixedLength>::LEN + self.contents.unknown()
     }
 }
 
@@ -264,7 +281,7 @@ mod private {
 
     impl Sealed for u8 {}
     impl Sealed for u16 {}
-    impl Sealed for crate::u30 {}
+    impl Sealed for crate::int::u30 {}
 }
 
 impl LenPref for u8 {
@@ -351,22 +368,27 @@ impl<S: LenPref, T: Decode> Decode for Dynamic<S, T> {
     }
 }
 
-/// `VPadded<T, N>`: Wrapper type around `T` that virtually "pads" it with `N` bytes for the purposes
-/// of determining when a variable-length field (or tuple positional argument) terminates.
+/// `VPadded<T, N>`: Wrapper type around `T` that virtually "pads" it with `N`
+/// bytes for the purposes of determining when a variable-length field (or tuple
+/// positional argument) terminates.
 ///
-/// A value of type `VPadded<T, N>` is semantically equivalent to a value of type `T` for almost
-/// any purpose, except for the purposes of parsing. In particular, when a value of type
-/// `VPadded<T, N>` has been fully parsed (and does not panic or otherwise fail), there will be
-/// exactly `N` unparsed bytes left in the current surrounding parse-context, which have been reserved
-/// for a fixed-length tail of remaining fields or arguments in a record or tuple-like container.
+/// A value of type `VPadded<T, N>` is semantically equivalent to a value of
+/// type `T` for almost any purpose, except for the purposes of parsing. In
+/// particular, when a value of type `VPadded<T, N>` has been fully parsed (and
+/// does not panic or otherwise fail), there will be exactly `N` unparsed bytes
+/// left in the current surrounding parse-context, which have been reserved for
+/// a fixed-length tail of remaining fields or arguments in a record or
+/// tuple-like container.
 ///
-/// In terms of syntax, `VPadded<T, N>` is similar to [`Padded<T, N>`](crate::schema::Padded),
-/// though the operational semantics of the two with respect to encoding and decoding are entirely
-/// distinct.
+/// In terms of syntax, `VPadded<T, N>` is similar to [`Padded<T,
+/// N>`](crate::schema::Padded), though the operational semantics of the two
+/// with respect to encoding and decoding are entirely distinct.
 ///
-/// It is technically valid to have a value of type `VPadded<_, 0>` just as it is valid to have a value
-/// of type `Padded<_, 0>`, though neither one is expected to appear in codecs as they are fundamentally
-/// indistinguishable from the payload type, and each other, for the purposes of encoding and decoding.
+/// It is technically valid to have a value of type `VPadded<_, 0>` just as it
+/// is valid to have a value of type `Padded<_, 0>`, though neither one is
+/// expected to appear in codecs as they are fundamentally indistinguishable
+/// from the payload type, and each other, for the purposes of encoding and
+/// decoding.
 #[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash, Default)]
 #[repr(transparent)]
 pub struct VPadded<T, const N: usize>(T);
@@ -406,7 +428,7 @@ impl<T, const N: usize> From<T> for VPadded<T, N> {
 
 impl<T: Encode, const N: usize> Encode for VPadded<T, N> {
     fn write_to<U: crate::Target>(&self, buf: &mut U) -> usize {
-        self.0.write_to(buf) + buf.resolve_zero()
+        self.0.write_to(buf)
     }
 }
 

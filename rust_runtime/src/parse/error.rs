@@ -280,9 +280,14 @@ impl Error for TokenError {
 /// or `assert!`-like mechanisms that issue panics when things go wrong.
 #[derive(Debug, Clone, Copy)]
 pub enum InternalError {
-    ConsumeLengthMismatch { expected: usize, actual: usize },
     SliceCoerceFailure(TryFromSliceError),
     NoValidTags,
+}
+
+impl From<std::array::TryFromSliceError> for InternalError {
+    fn from(err: std::array::TryFromSliceError) -> Self {
+        Self::SliceCoerceFailure(err)
+    }
 }
 
 impl From<InternalError> for ParseError {
@@ -294,13 +299,6 @@ impl From<InternalError> for ParseError {
 impl Display for InternalError {
     fn fmt(&self, f: &mut Formatter) -> Result {
         match self {
-            InternalError::ConsumeLengthMismatch { expected, actual } => {
-                write!(
-                    f,
-                    "bug: consume({}) returned slice of length {}",
-                    expected, actual
-                )
-            }
             InternalError::SliceCoerceFailure(_err) => {
                 write!(f, "failed to coerce from byte-slice to fixed-length array")
             }
@@ -314,7 +312,6 @@ impl Display for InternalError {
 impl Error for InternalError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
-            InternalError::ConsumeLengthMismatch { .. } => None,
             InternalError::SliceCoerceFailure(err) => Some(err),
             InternalError::NoValidTags => None,
         }
@@ -328,18 +325,9 @@ impl Error for InternalError {
 ///
 /// This error is guaranteed to be an `InternalError`.
 pub(crate) fn coerce_slice<const N: usize>(bytes: &'_ [u8]) -> ParseResult<[u8; N]> {
-    let actual = bytes.len();
-    if actual != N {
-        Err((InternalError::ConsumeLengthMismatch {
-            expected: N,
-            actual,
-        })
-        .into())
-    } else {
-        match <[u8; N] as std::convert::TryFrom<&'_ [u8]>>::try_from(bytes) {
-            Ok(arr) => Ok(arr),
-            Err(err) => Err(InternalError::SliceCoerceFailure(err).into()),
-        }
+    match <[u8; N] as std::convert::TryFrom<&'_ [u8]>>::try_from(bytes) {
+        Ok(array) => Ok(array),
+        Err(err) => Err(ParseError::from(InternalError::from(err))),
     }
 }
 
@@ -703,7 +691,8 @@ where
     /// Constructs a `TagError<T>` from the invalid tag value and a list of valid tag-values,
     /// using an inferred type-name via [`Any::type_name`](std::any::Any::type_name)
     pub fn with_type<U>(actual: T, expected: Option<Tags<T>>) -> Self
-    where U: std::any::Any
+    where
+        U: std::any::Any,
     {
         Self {
             actual,

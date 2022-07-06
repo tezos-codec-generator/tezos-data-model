@@ -1,3 +1,4 @@
+use crate::conv::error::{DecodeError, DecodeResult};
 use crate::conv::{target::Target, Decode, Encode};
 use crate::parse::{memoparser::MemoParser, ParseResult, Parser, TryIntoParser};
 
@@ -25,59 +26,74 @@ impl Decode for () {
         Ok(())
     }
 
-    fn try_decode<U, P>(_inp: U) -> crate::conv::error::DecodeResult<()>
-    where
-        Self: Sized,
-        P: Parser,
-        U: TryIntoParser<P>,
-        crate::conv::error::DecodeError: From<U::Error>,
-    {
-        #[cfg(feature = "check_complete_parse")]
-        {
-            let p: P = _inp.try_into_parser()?;
-            match p.cleanup() {
-                Ok(res) => {
-                    if res.is_empty() {
-                        Ok(())
-                    } else {
-                        Err(crate::conv::error::DecodeError::NonEmpty(res))
+    cfg_if::cfg_if! {
+        if #[cfg(feature = "check_complete_parse")] {
+            fn try_decode<U, P>(inp: U) -> DecodeResult<()>
+            where
+                P: Parser,
+                U: TryIntoParser<P>,
+                DecodeError: From<U::Error>,
+            {
+                let p: P = inp.try_into_parser()?;
+                match p.cleanup() {
+                    Ok(res) => {
+                        if res.is_empty() {
+                            Ok(())
+                        } else {
+                            Err(DecodeError::NonEmpty(res))
+                        }
                     }
+                    Err(inv) => Err(DecodeError::Invariant(inv)),
                 }
-                Err(inv) => Err(crate::conv::error::DecodeError::Invariant(inv)),
             }
+
+            fn decode_memo<U>(inp: U) -> Self
+            where
+                U: TryIntoParser<MemoParser>,
+                DecodeError: From<U::Error>,
+            {
+                Self::try_decode(inp).unwrap_or_else(|_| {
+                    panic!(
+                        "<{} as Decode>::decode_memo: unable to parse value (ParseError encountered)",
+                        std::any::type_name::<Self>()
+                    )
+                })
+            }
+
+            fn decode<U>(inp: U) -> Self
+            where
+                U: TryIntoParser,
+                DecodeError: From<U::Error>,
+            {
+                Self::try_decode(inp).unwrap_or_else(|err| {
+                    panic!(
+                        "<{} as Decode>::decode encountered error: {:?}",
+                        std::any::type_name::<Self>(),
+                        err
+                    )
+                })
+            }
+        } else {
+            fn try_decode<U, P>(_inp: U) -> DecodeResult<()>
+            where
+                P: Parser,
+                U: TryIntoParser<P>,
+                DecodeError: From<U::Error> { Ok(()) }
+
+            fn decode_memo<U>(_inp: U) -> Self
+            where
+                U: TryIntoParser<MemoParser>,
+                DecodeError: From<U::Error>,
+            { () }
+
+            fn decode<U>(_inp: U) -> Self
+            where
+                U: TryIntoParser,
+                DecodeError: From<U::Error>,
+            { () }
         }
-        #[cfg(not(feature = "check_complete_parse"))]
-        Ok(())
     }
 
-    fn decode_memo<U>(inp: U) -> Self
-    where
-        Self: Sized,
-        U: TryIntoParser<MemoParser>,
-        crate::conv::error::DecodeError: From<U::Error>,
-    {
-        Self::try_decode(inp).unwrap_or_else(|_| {
-            panic!(
-                "<{} as Decode>::decode_memo: unable to parse value (ParseError encountered)",
-                std::any::type_name::<Self>()
-            )
-        })
-    }
-
-    fn decode<U>(inp: U) -> Self
-    where
-        Self: Sized,
-        U: TryIntoParser,
-        crate::conv::error::DecodeError: From<U::Error>,
-    {
-        Self::try_decode(inp).unwrap_or_else(|err| {
-            panic!(
-                "<{} as Decode>::decode encountered error: {:?}",
-                std::any::type_name::<Self>(),
-                err
-            )
-        })
-    }
 }
 
 impl Encode for bool {

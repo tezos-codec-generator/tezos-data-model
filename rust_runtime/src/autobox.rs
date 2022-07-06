@@ -64,7 +64,9 @@ use std::fmt::{Debug, Display};
 /// ambiguous methods to the smart-pointer (`Deref`) type `Box<T>`,
 /// while still faciliting the definition of self-recursive types.
 ///
-///
+/// The 'Auto' in autobox refers to the self-referential nature
+/// of its primary use-case, and is not intended to suggest
+/// any notion of 'automation' or 'automaticity'.
 #[derive(PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(transparent)]
 pub struct AutoBox<T> {
@@ -91,6 +93,7 @@ impl<T> AutoBox<T> {
 
     /// Converts an existing `Box<T>` into an `AutoBox<T>` with a direct move
     #[must_use]
+    #[inline]
     pub fn from_boxed(_box: Box<T>) -> Self {
         Self { _box }
     }
@@ -105,7 +108,8 @@ impl<T> AutoBox<T> {
     /// assert_eq!(&5u8, Box::as_ref(&five.into_boxed()));
     /// ```
     #[must_use]
-    pub fn into_boxed(self) -> Box<T> {
+    #[inline]
+    pub fn into_box(self) -> Box<T> {
         self._box
     }
 
@@ -117,6 +121,7 @@ impl<T> AutoBox<T> {
     /// assert_eq!(5u8, five.into_inner());
     /// ```
     #[must_use]
+    #[inline]
     pub fn into_inner(self) -> T {
         *(self._box)
     }
@@ -134,6 +139,7 @@ impl<T> AutoBox<T> {
     /// assert_eq!(&3u8, five.as_inner());
     /// ```
     #[must_use]
+    #[inline]
     pub fn as_mut_boxed(&mut self) -> &mut Box<T> {
         &mut self._box
     }
@@ -150,6 +156,7 @@ impl<T> AutoBox<T> {
     /// assert_eq!(x.as_inner(), &8u8);
     /// ```
     #[must_use]
+    #[inline]
     pub fn as_mut_inner(&mut self) -> &mut T {
         <Box<T> as AsMut<T>>::as_mut(&mut self._box)
     }
@@ -164,6 +171,7 @@ impl<T> AutoBox<T> {
     /// assert_eq!(&5u8, five.as_inner());
     /// ```
     #[must_use]
+    #[inline]
     pub fn as_inner(&self) -> &T {
         <Box<T> as AsRef<T>>::as_ref(&self._box)
     }

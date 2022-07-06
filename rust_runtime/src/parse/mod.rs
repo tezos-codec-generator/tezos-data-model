@@ -38,7 +38,7 @@ pub mod error;
 
 pub use error::ParseResult;
 use error::{InternalError, ParseError, TagError};
-use std::convert::{TryFrom, TryInto};
+use std::convert::TryInto;
 
 /// # Parser
 ///
@@ -1032,8 +1032,7 @@ pub mod sliceparser {
         }
 
         fn enforce_target(&mut self) -> ParseResult<()> {
-            let _window = self.view_stack.pop();
-            match _window {
+            match self.view_stack.pop() {
                 None => Err(ParseError::Window(WindowError::CloseWithoutWindow)),
                 Some(_frame) => match _frame.len() {
                     0 => Ok(()),
@@ -1045,42 +1044,30 @@ pub mod sliceparser {
         }
 
         fn cleanup(mut self) -> CleanupResult {
-            let mut ret = Ok(LeftoverState::new());
+            let mut ret = LeftoverState::new();
 
             loop {
                 let res = self.remainder();
                 if res != 0 {
                     match self.take_dynamic(res) {
                         Ok(ref mut tmp) => {
-                            if let Ok(o) = &mut ret {
-                                o.append(tmp);
-                            }
+                            ret.append(tmp);
                         }
                         Err(e) => {
-                            ret = Err(InvariantError::ErrorUnexpected(e));
-                            break;
+                            return Err(InvariantError::ErrorUnexpected(e));
                         }
                     }
                 }
                 match self.enforce_target() {
-                    Ok(()) => {
-                        if let Ok(o) = &mut ret {
-                            o.escape_context();
-                        }
+                    Ok(()) => ret.escape_context(),
+                    Err(ParseError::Window(WindowError::CloseWithoutWindow)) => break,
+                    Err(ParseError::Window(w_err)) => {
+                        return Err(InvariantError::ErrorCaseUnexpected(w_err))
                     }
-                    Err(e) => {
-                        if let ParseError::Window(w_err) = e {
-                            match w_err {
-                                WindowError::CloseWithoutWindow => break,
-                                _ => ret = Err(InvariantError::ErrorCaseUnexpected(w_err)),
-                            }
-                        } else {
-                            ret = Err(InvariantError::ErrorKindUnexpected(e));
-                        }
-                    }
+                    Err(e) => return Err(InvariantError::ErrorKindUnexpected(e)),
                 }
             }
-            ret
+            Ok(ret)
         }
     }
 
@@ -1121,16 +1108,12 @@ where
 impl<P, T> TryIntoParser<P> for T
 where
     P: Parser,
-    <P as Parser>::Buffer: TryFrom<T>,
-    DecodeError: From<<T as TryInto<<P as Parser>::Buffer>>::Error>,
+    T: TryInto<P::Buffer>,
+    T::Error: Into<DecodeError>,
 {
-    type Error = <T as TryInto<<P as Parser>::Buffer>>::Error;
+    type Error = <T as TryInto<P::Buffer>>::Error;
 
     fn try_into_parser(self) -> std::result::Result<P, Self::Error> {
-        let buffer = match <<P as Parser>::Buffer as TryFrom<T>>::try_from(self) {
-            Ok(x) => x,
-            Err(err) => return Err(err),
-        };
-        Ok(P::from_buffer(buffer))
+        Ok(P::from_buffer(self.try_into()?))
     }
 }

@@ -295,12 +295,10 @@ impl ContextOffset {
         if new_tgt > self.abs {
             let bytes_left = self.abs - winsize;
             let request = winsize;
-            Err(ParseError::Window(
-                WindowError::OpenWouldExceedBuffer {
-                    bytes_left,
-                    request,
-                },
-            ))
+            Err(ParseError::Window(WindowError::OpenWouldExceedBuffer {
+                bytes_left,
+                request,
+            }))
         } else {
             self.frames.push_frame(new_tgt)
         }
@@ -319,38 +317,54 @@ impl ContextOffset {
 
         if let Some(tgt) = self.frames.peek() {
             match tgt.cmp(&cur) {
-                std::cmp::Ordering::Less => {
-                    Err(ParseError::Window(WindowError::OffsetOverflow {
-                        excess: cur - tgt,
-                    }))
-                }
                 std::cmp::Ordering::Equal => Ok(true),
                 std::cmp::Ordering::Greater => Ok(false),
+                std::cmp::Ordering::Less => Err(ParseError::Window(WindowError::OffsetOverflow {
+                    excess: cur - tgt,
+                })),
             }
         } else {
             Ok(false)
         }
     }
 
-    /// Pops the innermost context-frame and checks to make sure it existed in the first place,
-    /// and that the popped frame's target has been exactly reached.
+    /// Attempt to closes the innermost context-frame.
+    ///
+    /// This method returns `Ok(())` when the current offset
+    /// exactly equals the innermost target offset, and fails
+    /// otherwise, including the case where there are no
+    /// context-windows to close.
+    ///
+    /// # Errors
+    ///
+    /// If there are no open context windows, returns a suitably wrapped
+    /// [`CloseWithoutWindow`][cwow] error.
+    ///
+    /// If there are leftover bytes in the innermost context window between The
+    /// actual and target offsets, returns a suitably wrapped [`CloseWithResidue`][cwr]
+    /// error.
+    ///
+    /// In the rare case that the actual offset has somehow surpassed the target offset,
+    /// returns a suitably wrpaped [`OffsetOverflow`][oof] error.
+    ///
+    /// [cwow]: crate::parse::error::WindowError::CloseWithoutWindow
+    /// [cwr]: crate::parse::error::WindowError::CloseWithResidue
+    /// [oof]: crate::parse::error::WindowError::OffsetOverflow
     pub fn enforce_target(&mut self) -> crate::parse::error::ParseResult<()> {
         let cur: usize = self.index();
 
         match self.frames.pop() {
             None => Err(ParseError::Window(WindowError::CloseWithoutWindow)),
             Some(tgt) => match tgt.cmp(&cur) {
-                std::cmp::Ordering::Less => {
-                    Err(ParseError::Window(WindowError::OffsetOverflow {
-                        excess: cur - tgt,
-                    }))
-                }
                 std::cmp::Ordering::Equal => Ok(()),
                 std::cmp::Ordering::Greater => {
                     Err(ParseError::Window(WindowError::CloseWithResidue {
                         residual: tgt - cur,
                     }))
                 }
+                std::cmp::Ordering::Less => Err(ParseError::Window(WindowError::OffsetOverflow {
+                    excess: cur - tgt,
+                })),
             },
         }
     }
