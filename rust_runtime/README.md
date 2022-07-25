@@ -300,3 +300,43 @@ of `&str` values we wish to parse via `TryIntoParser::try_into_parser()`. It
 exposes a `hex!()` macro that performs conversion from a `String`, `&str`, and
 similar types into a `HexString`, which may panic if the conversion cannot be
 performed.
+
+## Known Bugs
+
+This section contains a list of known bugs in the runtime implementation,
+which are intended to be fixed expediently but not precluding other
+work.
+
+### `FixSeq` Deserialization Loop Condition
+
+As currently implemented, exact-length sequences are decoded incorrectly: rather than return an early
+success as soon as the accumulated list is saturated
+at `N` values, the `Decode` implementation will attempt
+to exhaust the current context-window even if that
+causes the sequence to become oversaturated, and
+implicitly consume any subsequent schema elements.
+This has not been identified as a source of issue,
+due to the rarity of `Exactly n`-limited sequence
+schema elements, or due to the context in which
+they appear preventing this overrun from happening.
+
+z
+
+this is incorrect.
+result and consume
+
+### `RangedInt` Positive Min-Bounds
+
+Much of the logic around `RangedInt` assumes that the value held by the newtype
+in question is the exact numerical value being represented, which is only true
+when `MIN <= 0`. When `MIN > 0`, a great number of type-associated methods,
+and trait method implementations, are incorrect either in their documented
+behavior, or in the actual behavior of their implementation as-is.
+
+To fix this, a number of methods will need to be redesigned and re-documented
+appropriately.
+
+A unit test that attempts to roundtrip `RangedInt<u8, 256, 257>` is currently
+implemented, and fails in light of this bug. When this unit test passes, it is
+likely that the bug has been at least superficially addressed. Further unit tests
+may be appropriate to fully demonstrate the soundness of the re-implemented logic.
