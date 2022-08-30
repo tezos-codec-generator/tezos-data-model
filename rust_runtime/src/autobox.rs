@@ -105,7 +105,7 @@ impl<T> AutoBox<T> {
     /// ```
     /// # use rust_runtime::AutoBox;
     /// let five = AutoBox::new(5u8);
-    /// assert_eq!(&5u8, Box::as_ref(&five.into_boxed()));
+    /// assert_eq!(&5u8, Box::as_ref(&five.into_box()));
     /// ```
     #[must_use]
     #[inline]

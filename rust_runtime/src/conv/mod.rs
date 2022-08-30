@@ -194,16 +194,16 @@ impl<T: Encode + len::Estimable + ?Sized> EncodeLength for T {
 ///
 /// ```
 /// # use ::rust_runtime::parse::{Parser, ParseResult, byteparser::ByteParser};
-/// use rust_runtime::Decode
+/// use rust_runtime::Decode;
 /// use rust_runtime::{VPadded, Bytes, Sequence, seq};
 ///
-///
+/// #[derive(Debug, PartialEq)]
 /// pub struct MyTypeElem {
 ///     is_valid: bool,
 ///     id: u8,
 /// }
 ///
-///
+/// #[derive(Debug, PartialEq)]
 /// pub struct MyType(Sequence<MyTypeElem>);
 ///
 /// impl Decode for MyTypeElem {

@@ -280,6 +280,7 @@ where
     fn parse<P: Parser>(p: &mut P) -> ParseResult<Self> {
         let mut seq = Self::new();
 
+        // FIXME: loop should exit after N iterations even if bytes remain
         while p.remainder() != 0 {
             seq.try_push(T::parse(p)?)?;
         }

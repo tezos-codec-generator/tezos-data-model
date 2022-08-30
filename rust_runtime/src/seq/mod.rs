@@ -238,7 +238,7 @@ impl<T: Decode> Decode for Sequence<T> {
 
 #[macro_export]
 macro_rules! seq {
-    () => { $crate::schema::seq::Sequence::new() };
-    ($elem:expr; $n:expr) => { $crate::schema::seq::Sequence::from_vec(vec![$elem; $n]) };
-    ($($x:expr),+ $(,)?) => { $crate::schema::seq::Sequence::from_vec(vec![$($x),*]) };
+    () => { $crate::seq::Sequence::new() };
+    ($elem:expr; $n:expr) => { $crate::seq::Sequence::from_vec(vec![$elem; $n]) };
+    ($($x:expr),+ $(,)?) => { $crate::seq::Sequence::from_vec(vec![$($x),*]) };
 }

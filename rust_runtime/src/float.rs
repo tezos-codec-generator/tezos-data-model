@@ -88,7 +88,7 @@ pub const fn from_const_generic(bound: u64) -> f64 {
 ///
 /// ```
 /// # use ::rust_runtime::RangedF64;
-/// assert_eq!(f64::default(), <RangedF64!(-0.1,0.1) as Default>::default().as_f64());
+/// assert_eq!(f64::default(), *<RangedF64!(-0.1,0.1) as Default>::default().as_f64());
 /// ```
 ///
 #[macro_export]

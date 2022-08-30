@@ -89,10 +89,11 @@ impl<const N: usize> FixedString<N> {
     /// # use ::rust_runtime::fixed::FixedString;
     ///
     /// const MOGAMI_STR : &'static str = "さみだれをあつめてはやしもがみがわ";
-    /// const MOGAMI_ARR : [u8; 34] = b"さみだれをあつめてはやしもがみがわ";
+    /// const MOGAMI_ARR : &[u8; 51] = b"\xE3\x81\x95\xE3\x81\xBF\xE3\x81\xA0\xE3\x82\x8C\xE3\x82\x92\xE3\x81\x82\xE3\x81\xA4\xE3\x82\x81\xE3\x81\xA6\xE3\x81\xAF\xE3\x82\x84\xE3\x81\x97\xE3\x82\x82\xE3\x81\x8C\xE3\x81\xBF\xE3\x81\x8C\xE3\x82\x8F";
     ///
-    /// let haiku : FixedString<34> = FixedString::try_from_array(&MOGAMI_ARR);
-    /// assert_eq(haiku.as_str(), MOGAMI_STR);
+    ///
+    /// let haiku : FixedString<51> = FixedString::try_from_array(MOGAMI_ARR).unwrap();
+    /// assert_eq!(haiku.as_str(), MOGAMI_STR);
     /// ```
     ///
     ///

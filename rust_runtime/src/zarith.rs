@@ -13,9 +13,8 @@ macro_rules! impl_zarith {
     ($x:ident) => {
         impl $crate::Encode for $x {
             fn write_to<U: $crate::conv::target::Target>(&self, buf: &mut U) -> usize {
-                buf.push_all(&<$x as $crate::zarith::Zarith>::serialize(
-                    self,
-                )) + $crate::conv::target::Target::resolve_zero(buf)
+                buf.push_all(&<$x as $crate::zarith::Zarith>::serialize(self))
+                    + $crate::conv::target::Target::resolve_zero(buf)
             }
         }
 
@@ -259,24 +258,30 @@ pub mod z {
         fn serialize(&self) -> Vec<u8> {
             let (sg, mut abs) = self.0.clone().into_parts();
 
-            let bot6 = abs.modpow(&BigUint::from(1u8), &BigUint::from(0x40u8));
-            abs >>= 6;
-            abs <<= 7;
-
-            abs |= match sg {
-                Sign::Minus => bot6 | BigUint::from(0x40u8),
-                _ => bot6,
-            };
+            // We initially shift by one, leaving an offset in the 6-group of
+            // LSB in the first serialized byte, which will be corrected on its
+            // own rather than require additional upfront BigUint arithmetic
+            abs <<= 1u8;
 
             let mut ret = abs.to_radix_le(0x80);
             let final_ix: usize = ret.len() - 1;
+
+            unsafe {
+                let first_byte = ret.first_mut().unwrap_unchecked();
+
+                *first_byte >>= 1u8;
+                match sg {
+                    Sign::Minus => *first_byte |= 0x40u8,
+                    _ => {}
+                };
+            }
 
             // we unwrap the loop logic of setting the high bit of every byte
             // but the last, by pre-setting the high bit of the last byte and
             // toggling it over every byte in the buffer
             unsafe {
-                let lastbyt = ret.get_unchecked_mut(final_ix);
-                *lastbyt ^= 0x80;
+                let last_byte = ret.get_unchecked_mut(final_ix);
+                *last_byte ^= 0x80;
             }
 
             for byt in ret.iter_mut() {
@@ -291,7 +296,7 @@ pub mod z {
 
     #[cfg(test)]
     mod test {
-        use crate::{hex, Decode};
+        use crate::{hex, Decode, HexString, Encode};
 
         use super::*;
 
@@ -300,9 +305,13 @@ pub mod z {
         #[test]
         fn int_conv() {
             assert_eq!(INT(0), Z::decode(hex!("00")));
+            assert_eq!(INT(0).encode::<HexString>(), hex!("00"));
             assert_eq!(INT(1), Z::decode(hex!("01")));
+            assert_eq!(INT(1).encode::<HexString>(), hex!("01"));
             assert_eq!(INT(64), Z::decode(hex!("8001")));
+            assert_eq!(INT(64).encode::<HexString>(), hex!("8001"));
             assert_eq!(INT(-32), Z::decode(hex!("60")));
+            assert_eq!(INT(-32).encode::<HexString>(), hex!("60"));;
         }
     }
 }
