@@ -311,7 +311,7 @@ pub mod z {
             assert_eq!(INT(64), Z::decode(hex!("8001")));
             assert_eq!(INT(64).encode::<HexString>(), hex!("8001"));
             assert_eq!(INT(-32), Z::decode(hex!("60")));
-            assert_eq!(INT(-32).encode::<HexString>(), hex!("60"));;
+            assert_eq!(INT(-32).encode::<HexString>(), hex!("60"));
         }
     }
 }
