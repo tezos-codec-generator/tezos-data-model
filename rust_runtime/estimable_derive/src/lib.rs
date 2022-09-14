@@ -75,6 +75,8 @@ pub fn estimable_derive(input: TokenStream) -> TokenStream {
 fn impl_estimable(ast: &syn::DeriveInput) -> TokenStream {
     let fixed_len_trait = quote! { rust_runtime::conv::len::FixedLength };
     let estimable_trait = quote! { rust_runtime::conv::len::Estimable };
+    let some = quote! { ::std::option::Option::Some };
+    let none = quote! { ::std::option::Option::None };
 
     let name = &ast.ident;
     let gen = match &ast.data {
@@ -119,8 +121,8 @@ fn impl_estimable(ast: &syn::DeriveInput) -> TokenStream {
                             const KNOWN : Option<usize> = {
                                 const fn f( #( #varname : Option<usize> ),* ) -> Option<usize> {
                                     match ( #( #varname ),* ) {
-                                        ( #( Some(#varname) ),* ) => Some( #(#varname)+* ),
-                                        _ => None,
+                                        ( #( #some(#varname) ),* ) => ( #some(#(#varname)+*)),
+                                        _ => #none,
                                     }
                                 }
                                 f( #( <#ty as #estimable_trait>::KNOWN ),* )
@@ -153,8 +155,8 @@ fn impl_estimable(ast: &syn::DeriveInput) -> TokenStream {
                             const KNOWN : Option<usize> = {
                                 const fn f( #( #fname : Option<usize> ),* ) -> Option<usize> {
                                     match ( #( #fname ),* ) {
-                                        ( #( Some(#fname)),* ) => Some( #(#fname)+* ),
-                                        _ => None,
+                                        ( #( #some(#fname)),* ) => #some( #(#fname)+* ),
+                                        _ => #none,
                                     }
                                 }
                                 f( #( <#ty as #estimable_trait>::KNOWN ),* )
