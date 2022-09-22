@@ -307,24 +307,6 @@ This section contains a list of known bugs in the runtime implementation,
 which are intended to be fixed expediently but not precluding other
 work.
 
-### `FixSeq` Deserialization Loop Condition
-
-As currently implemented, exact-length sequences are decoded incorrectly: rather than return an early
-success as soon as the accumulated list is saturated
-at `N` values, the `Decode` implementation will attempt
-to exhaust the current context-window even if that
-causes the sequence to become oversaturated, and
-implicitly consume any subsequent schema elements.
-This has not been identified as a source of issue,
-due to the rarity of `Exactly n`-limited sequence
-schema elements, or due to the context in which
-they appear preventing this overrun from happening.
-
-z
-
-this is incorrect.
-result and consume
-
 ### `RangedInt` Positive Min-Bounds
 
 Much of the logic around `RangedInt` assumes that the value held by the newtype
