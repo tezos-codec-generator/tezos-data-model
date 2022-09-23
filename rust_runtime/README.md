@@ -306,19 +306,3 @@ performed.
 This section contains a list of known bugs in the runtime implementation,
 which are intended to be fixed expediently but not precluding other
 work.
-
-### `RangedInt` Positive Min-Bounds
-
-Much of the logic around `RangedInt` assumes that the value held by the newtype
-in question is the exact numerical value being represented, which is only true
-when `MIN <= 0`. When `MIN > 0`, a great number of type-associated methods,
-and trait method implementations, are incorrect either in their documented
-behavior, or in the actual behavior of their implementation as-is.
-
-To fix this, a number of methods will need to be redesigned and re-documented
-appropriately.
-
-A unit test that attempts to roundtrip `RangedInt<u8, 256, 257>` is currently
-implemented, and fails in light of this bug. When this unit test passes, it is
-likely that the bug has been at least superficially addressed. Further unit tests
-may be appropriate to fully demonstrate the soundness of the re-implemented logic.

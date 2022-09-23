@@ -30,9 +30,10 @@ mod private {
 pub trait Integral
 where
     Self: Copy + std::hash::Hash + std::fmt::Display,
-    Self: Integer + Into<i64> + TryFrom<i64>,
+    Self: Integer + Into<i64> + TryFrom<i64> + TryFrom<i32>,
     Self: Eq + PartialEq + Ord + PartialOrd,
     Self: private::Sealed,
+    <Self as TryFrom<i32>>::Error: Debug,
 {
 }
 
@@ -104,6 +105,23 @@ pub const MAX_OCAML_NATIVE_UINT: u32 = 0x3fff_ffff;
 /// are not representable using direct values of `I`, but their difference
 /// can be, such as `RangedInt::<u8, 1023, 1024>`.
 ///
+/// ## Representational vs Numeric Equivalence
+///
+/// When describing the properties or behavior of methods or fields of a RangedInt,
+/// an important distinction is made between *numerical* and *representational* equivalence.
+///
+/// For `MIN <= 0`, the two concepts coincide, with the value represented by a `RangedInt`
+/// equal to the numeric value it stores opaquely. When `MIN` is positive, the value stored is
+/// implicitly divergent from the numeric value it signifies. Namely, a RangedInt that stores
+/// an **underlying** value `x` for `0 <= x <= MAX - MIN` signifies a numeric value equal to
+/// `MIN + x`, but is only guaranteed to be representable by its backer type in its raw form,
+/// which coincides with its operational semantics in the transcoding layer.
+///
+/// Any method that specifies the **underlying** value of a RangedInt refers to the backer-value
+/// it is representationally equivalent to, and only happens to be numerically equivalent to for
+/// `MIN <= 0`. Therefore, the only way to portably extract the numeric value of a `RangedInt<I, MIN, MAX>`
+/// is to use a wide-enough intermediate type, chosen to be `i32`.
+///
 /// # Bound Limits
 ///
 /// The generic const bounds must satisfy the following invariant in order
@@ -115,7 +133,10 @@ pub const MAX_OCAML_NATIVE_UINT: u32 = 0x3fff_ffff;
 /// attempting to use such a type may result in a runtime panic.
 #[derive(Clone, Copy, Eq, Ord, PartialEq, PartialOrd, Debug, Hash)]
 #[repr(transparent)]
-pub struct RangedInt<I: Integral, const MIN: i32, const MAX: i32>(I);
+pub struct RangedInt<I, const MIN: i32, const MAX: i32>(I)
+where
+    I: Integral,
+    <I as TryFrom<i32>>::Error: Debug;
 
 #[allow(non_camel_case_types)]
 #[allow(dead_code)]
@@ -127,7 +148,11 @@ pub type u30 = RangedInt<u32, 0, MAX_OCAML_NATIVE_INT>;
 /// Type alias for the range of `Int31` codecs, from `-2^30` to `2^30 - 1`
 pub type i31 = RangedInt<i32, MIN_OCAML_NATIVE_INT, MAX_OCAML_NATIVE_INT>;
 
-impl<I: Integral, const MIN: i32, const MAX: i32> RangedInt<I, MIN, MAX> {
+impl<I, const MIN: i32, const MAX: i32> RangedInt<I, MIN, MAX>
+where
+    I: Integral,
+    <I as TryFrom<i32>>::Error: std::fmt::Debug,
+{
     /// Associated constant used for sanity-checking of the type-level generics
     /// `MIN` and `MAX`.
     ///
@@ -136,41 +161,49 @@ impl<I: Integral, const MIN: i32, const MAX: i32> RangedInt<I, MIN, MAX> {
     #[cfg(feature = "invalid_range_checking")]
     const SANITY: bool = MIN >= MIN_OCAML_NATIVE_INT && MAX <= MAX_OCAML_NATIVE_INT && MIN <= MAX;
 
-    /// Converts a value `x` of the backer type `I` to a numerically equivalent value
-    /// of type `RangedInt<I, MIN, MAX>`
+    /// Constructs a value of type `RangedInt<I, MIN, MAX>` from a value `x` of
+    /// the backer type `I`, representationally equivalent to `x` in all cases;
+    /// this value is only *numerically* equivalent to `x` when (`MIN <= 0`).
     ///
-    /// This function does not check that the provided value is in range, nor that the range
-    /// itself is sound.
+    /// This function does not check that the value being constructed is valid
+    /// within its inherent range, nor does it check whether the range itself is
+    /// sound (i.e. that `MIN <= MAX` holds and that `MIN` and `MAX` are not
+    /// outside of the OCaml 31-bit integer range).
     ///
     /// # Safety
     ///
-    /// This function does not panic, but it can be used to produce incoherent values or
-    /// values of theoretically unpopulated types, and so using any value returned by this
-    /// unsafe function may cause undefined behavior down the line.
+    /// This function does not panic, but it can be used to produce incoherent
+    /// values or values of theoretically unpopulated types, and so using any
+    /// value returned by this unsafe function may cause undefined behavior down
+    /// the line.
     #[must_use]
     #[inline]
-    pub unsafe fn from_value_unchecked(x: I) -> Self {
-        // FIXME: fix bug when MIN > 0 (and edit documentation appropriately)
+    pub unsafe fn from_underlying_unchecked(x: I) -> Self {
         Self(x)
     }
 
-    /// Converts a value `x` of the backer type `I` to a numerically equivalent value
-    /// of type `RangedInt<I, MIN, MAX>`, checking that the range `[MIN, MAX]` is
-    /// coherent and that `x` falls into that range.
+    /// Constructs a value of type `RangedInt<I, MIN, MAX>` from a value `x` of
+    /// the backer type `I`, representationally equivalent to `x` in all cases;
+    /// this value is only *numerically* equivalent to `x` when (`MIN <= 0`).
+    ///
+    /// This function performs the necessary checks to ensure that the range
+    /// `[MIN, MAX]` is coherent and that `x` itself is valid: that it falls
+    /// into the given range (when `MIN <= 0`), or that it is no greater than
+    /// `MAX - MIN` (when `MIN > 0`)
     ///
     /// # Panics
     ///
-    /// If either of the checked conditions are violated, this function will panic.
+    /// If either of the checked conditions are violated, this function will
+    /// panic.
     #[must_use]
     #[inline]
-    pub fn from_value(x: I) -> Self {
-        // FIXME: fix bug when MIN > 0 (and edit documentation appropriately)
-        Self::try_from_value(x).expect("RangedInt::from_value encountered Err")
+    pub fn from_underlying(x: I) -> Self {
+        Self::try_from_underlying(x).expect("RangedInt::from_underlying encountered Err")
     }
 
-    /// Attempt to convert a value `x` of the backer type `I` to a numerically equivalent
+    /// Attempt to convert a value `x` of the backer type `I` to a representationally equivalent
     /// value of type `RangedInt<I, MIN, MAX>`, checking that the range `[MIN, MAX]` is
-    /// coherent and that `x` falls into that range.
+    /// coherent and that `x` is a valid underlying value for that range.
     ///
     /// Returns `Ok` if the checks are satisfied, or `Err(e)` otherwise, where
     /// `e` is an indication of what required condition failed to hold for the
@@ -181,10 +214,10 @@ impl<I: Integral, const MIN: i32, const MAX: i32> RangedInt<I, MIN, MAX> {
     /// This function will never panic under normal compilations.
     ///
     /// If the `invalid-range-checking` feature is turned on, however, this
-    /// function will panic if `[MIN, MAX]` is not a valid sub-range of
-    /// `[`[`MIN_OCAML_NATIVE_INT`]`, `[`MAX_OCAML_NATIVE_INT`]`]`
+    /// function will panic when `MIN` or `MAX` do not satisfy the invariant
+    /// [`MIN_OCAML_NATIVE_INT`] `<= MIN <= MAX <=` [`MAX_OCAML_NATIVE_INT`]
     #[inline]
-    pub fn try_from_value(x: I) -> Result<Self, crate::error::BoundsError<i64>> {
+    pub fn try_from_underlying(x: I) -> Result<Self, crate::error::BoundsError<i64>> {
         // FIXME: fix bug when MIN > 0 (and edit documentation appropriately)
         #[cfg(feature = "invalid_range_checking")]
         assert!(
@@ -197,34 +230,96 @@ impl<I: Integral, const MIN: i32, const MAX: i32> RangedInt<I, MIN, MAX> {
         Ok(Self(BoundsError::<i64>::restrict(x, MIN, MAX)?))
     }
 
-    /// Destruct and return the numeric value of a `RangedInt<I, MIN, MAX>`
+    #[must_use]
+    #[inline]
+    pub unsafe fn from_numeric_unchecked<T>(x: T) -> Self
+    where
+        T: TryInto<I> + TryInto<i32>,
+        <T as std::convert::TryInto<I>>::Error: Debug,
+        <T as std::convert::TryInto<i32>>::Error: Debug,
+    {
+        if MIN <= 0 {
+            return Self::from_underlying_unchecked(x.try_into().unwrap());
+        } else {
+            return Self::from_underlying_unchecked(
+                (<T as TryInto<i32>>::try_into(x).unwrap() - MIN)
+                    .try_into()
+                    .unwrap(),
+            );
+        }
+    }
+
+    pub fn from_i32(x: i32) -> Self
+    where
+        <I as TryFrom<i64>>::Error: Into<std::num::TryFromIntError>,
+    {
+        Self::try_from_i32(x).expect("RangedInt::from_i32 encountered Err")
+    }
+
+    pub fn try_from_i32(x: i32) -> Result<Self, crate::error::BoundsError<i64>>
+    where
+        <I as TryFrom<i64>>::Error: Into<std::num::TryFromIntError>,
+    {
+        #[cfg(feature = "invalid_range_checking")]
+        assert!(
+            Self::SANITY,
+            "type-level bounds on RangedInt<{},{}> are invalid",
+            MIN,
+            MAX
+        );
+
+        let underlying: i64 = if MIN <= 0 { x } else { x - MIN } as i64;
+        match I::try_from(BoundsError::<i64>::restrict(underlying, MIN, MAX)?) {
+            Ok(val) => Ok(Self(val)),
+            Err(e) => Err(BoundsError::Failed(e.into())),
+        }
+    }
+
+    /// Destruct and return the underlying value of a `RangedInt<I, MIN, MAX>`
     /// without checking that it is in-range, or that the invariant `MIN <= MAX`
     /// holds.
+    ///
+    /// The returned value is the representationally equivalent value of the receiver,
+    /// which is only numerically equivalent for `MIN <= 0`, and otherwise represents
+    /// the non-negative offset from `MIN` it signifies.
+    ///
+    /// To extract the actual numeric value, see the method `to_value_unchecked` and
+    /// related functions.
     ///
     /// No checks are performed, and so values returned from calls to this destructor
     /// are not guaranteed to be in the implicit range `[MIN, MAX]`.
     ///
     /// # Safety
     ///
-    /// This destructor is a dual to the constructor [`from_value_unchecked`],
+    /// This destructor is a dual to the constructor [`from_underlying_unchecked`],
     /// which is the only method that allows for the construction of numeric
     /// values outside of the range `[MIN, MAX]`. In turn, this destructor
     /// is the only one that is guaranteed not to panic or produce undefined
     /// behavior when applied to such out-of-bounds values.
     #[inline]
-    pub unsafe fn to_value_unchecked(self) -> I {
-        // FIXME: fix bug when MIN > 0 (and edit documentation appropriately)
+    pub unsafe fn to_underlying_unchecked(self) -> I {
         self.0
     }
 
-    /// Extract the numeric value of a `RangedInt<I, MIN, MAX>`, checking that
-    /// the value is in range, and that the range itself is coherent.
+    /// Extract the underlying (representationally equivalent) value of a
+    /// `RangedInt<I, MIN, MAX>`, checking that the value is in range,
+    /// and that the range itself is coherent.
     ///
     /// # Panics
     ///
+    /// Panics if the value is outside of the range `[MIN, MAX]`,
+    /// or if the range itself is incoherent (i.e. `MAX < MIN` or either fall outside of
+    /// the range `[MIN_OCAML_NATIVE_INT, MAX_OCAML_NATIVE_INT]`).
     ///
-    pub fn to_value(self) -> I {
-        // FIXME: fix bug when MIN > 0 (and edit documentation appropriately)
+    /// # Examples
+    ///
+    /// ```
+    /// # use ::rust_runtime::int::RangedInt;
+    /// assert_eq!(RangedInt::<u8, 1023, 1025>::from_underlying(0).to_underlying(), 0);
+    /// assert_eq!(RangedInt::<u8, 1023, 1025>::from_underlying(0).to_i32(), 1023);
+    /// ```
+    ///
+    pub fn to_underlying(self) -> I {
         #[cfg(feature = "invalid_range_checking")]
         assert!(
             Self::SANITY,
@@ -235,15 +330,42 @@ impl<I: Integral, const MIN: i32, const MAX: i32> RangedInt<I, MIN, MAX> {
 
         match crate::error::BoundsError::<i64>::restrict(self.0, MIN, MAX) {
             Ok(x) => x,
-            Err(err) => panic!("RangedInt::to_value unable to destruct: {}", err),
+            Err(err) => panic!("RangedInt::to_underlying unable to destruct: {}", err),
         }
     }
-}
 
-impl<I: Integral, const MIN: i32, const MAX: i32> AsRef<I> for RangedInt<I, MIN, MAX> {
-    // FIXME: fix bug when MIN > 0 (and edit documentation appropriately)
-    fn as_ref(&self) -> &I {
-        &self.0
+    /// Returns the numerically equivalent `i32` value to `self`, or
+    /// panics if `self` is out of bounds.
+    ///
+    /// # Panics
+    ///
+    /// This method panics if `self` is out of bounds.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use ::rust_runtime::int::RangedInt;
+    /// assert_eq!(RangedInt::<u8, 1024, 1200>::from_underlying(0).to_i32(), 1024);
+    /// ```
+    pub fn to_i32(self) -> i32 {
+        #[cfg(feature = "invalid_range_checking")]
+        assert!(
+            Self::SANITY,
+            "type-level bounds on RangedInt<{},{}> are invalid",
+            MIN,
+            MAX
+        );
+
+        match crate::error::BoundsError::<i64>::restrict(self.0, MIN, MAX) {
+            Ok(x) => {
+                if MIN <= 0 {
+                    x.into() as i32
+                } else {
+                    x.into() as i32 + MIN
+                }
+            }
+            Err(err) => panic!("RangedInt::to_i32 unable to destruct: {}", err),
+        }
     }
 }
 
@@ -278,7 +400,6 @@ pub mod ranged_int_impls {
 
                 // FIXME: fix bug when MIN > 0 (and edit documentation appropriately)
                 pub const MAX: $t = MAX_I32 as $t;
-
 
                 /// Returns the minimum legal value of `Self`
                 #[inline]
@@ -338,10 +459,9 @@ pub mod ranged_int_impls {
             impl<const MIN: i32, const MAX: i32> TryFrom<$src> for RangedInt<$backer, MIN, MAX> {
                 type Error = BoundsError<i128>;
 
-                // FIXME: fix bug when MIN > 0 (and edit documentation appropriately)
                 fn try_from(val: $src) -> Result<Self, Self::Error> {
                     match BoundsError::restrict(val, MIN, MAX) {
-                        Ok(x) => unsafe { Ok(Self::from_value_unchecked(x as $backer)) }
+                        Ok(x) => unsafe { Ok(Self::from_numeric_unchecked(x)) }
                         Err(e) => Err(e)
                     }
                 }
@@ -376,11 +496,12 @@ pub mod ranged_int_impls {
         ( $( $trait:ident ),+ ) => {
             $( impl<I, const MIN: i32, const MAX: i32> std::fmt::$trait for RangedInt<I, MIN, MAX>
             where
-                I: Integral + std::fmt::$trait,
+                I: Integral,
+                i32: std::fmt::$trait,
+                <I as TryFrom<i32>>::Error: Debug
             {
                 fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                    // FIXME: fix bug when MIN > 0 (and edit documentation appropriately)
-                    <I as std::fmt::$trait>::fmt(self.as_ref(), f)
+                    <i32 as std::fmt::$trait>::fmt(&self.to_i32(), f)
                 }
             }
             )+
@@ -393,15 +514,10 @@ pub mod ranged_int_impls {
     where
         I: Integral + Encode,
         <I as TryFrom<i64>>::Error: std::fmt::Debug,
+        <I as TryFrom<i32>>::Error: std::fmt::Debug,
     {
         fn write_to<U: crate::conv::target::Target>(&self, buf: &mut U) -> usize {
-            let enc_val = if MIN > 0 {
-                let val: i64 = self.to_value().into();
-                let min: i64 = MIN.into();
-                (val - min).try_into().unwrap()
-            } else {
-                self.to_value()
-            };
+            let enc_val = self.to_underlying();
             enc_val.write_to(buf) + buf.resolve_zero()
         }
     }
@@ -409,6 +525,7 @@ pub mod ranged_int_impls {
     impl<I, const MIN: i32, const MAX: i32> FixedLength for RangedInt<I, MIN, MAX>
     where
         I: Integral + FixedLength,
+        <I as TryFrom<i32>>::Error: std::fmt::Debug,
     {
         const LEN: usize = I::LEN;
     }
@@ -417,24 +534,11 @@ pub mod ranged_int_impls {
     where
         I: Integral + Decode,
         <I as TryFrom<i64>>::Error: std::fmt::Debug,
+        <I as TryFrom<i32>>::Error: std::fmt::Debug,
     {
         fn parse<P: Parser>(p: &mut P) -> ParseResult<Self> {
             let raw = I::parse(p)?;
-            if MIN > 0 {
-                let adjusted: i64 = <I as Into<i64>>::into(raw) + i64::from(MIN);
-                match BoundsError::<i64>::restrict(adjusted, MIN, MAX) {
-                    Ok(val) => match val.try_into() {
-                        Ok(x) => Ok(unsafe { Self::from_value_unchecked(x) }),
-                        Err(_) => unreachable!(), /* MIN <= val <= MAX should guarantee val is in its representational range */
-                    },
-                    Err(oor) => Err(oor.into()),
-                }
-            } else {
-                match BoundsError::<i64>::restrict(raw, MIN, MAX) {
-                    Ok(val) => Ok(unsafe { Self::from_value_unchecked(val) }),
-                    Err(oor) => Err(oor.into()),
-                }
-            }
+            Ok(Self::try_from_underlying(raw)?)
         }
     }
 }
@@ -538,9 +642,9 @@ mod tests {
     #[test]
     fn u30_encode_decode() {
         let cases: [(u30, &'static str); 3] = [
-            (u30::from_value(0x0000_0000), "00000000"),
-            (u30::from_value(0x0000_0001), "00000001"),
-            (u30::from_value(0x3fff_ffff), "3fffffff"),
+            (u30::from_underlying(0x0000_0000), "00000000"),
+            (u30::from_underlying(0x0000_0001), "00000001"),
+            (u30::from_underlying(0x3fff_ffff), "3fffffff"),
         ];
         encode_decode(cases)
     }
@@ -548,11 +652,11 @@ mod tests {
     #[test]
     fn i31_encode_decode() {
         let cases: [(i31, &'static str); 5] = [
-            (i31::from_value(0x0000_0000), "00000000"),
-            (i31::from_value(0x0000_0001), "00000001"),
-            (i31::from_value(0x3fff_ffff), "3fffffff"),
-            (i31::from_value(-0x4000_0000), "c0000000"),
-            (i31::from_value(-1), "ffffffff"),
+            (i31::from_underlying(0x0000_0000), "00000000"),
+            (i31::from_underlying(0x0000_0001), "00000001"),
+            (i31::from_underlying(0x3fff_ffff), "3fffffff"),
+            (i31::from_underlying(-0x4000_0000), "c0000000"),
+            (i31::from_underlying(-1), "ffffffff"),
         ];
         encode_decode(cases)
     }
@@ -582,11 +686,13 @@ mod tests {
 
     #[test]
     fn short_high() {
-        let short_high_cases: [(RangedInt<u8,256,257>, &'static str); 2] = [
-            (RangedInt::from_value(0x00), "0x00"),
-            (RangedInt::from_value(0x01), "0x01"),
+        let short_high_cases: [(RangedInt<u8, 256, 257>, &'static str); 2] = [
+            (RangedInt::from_underlying(0x00), "00"),
+            (RangedInt::from_underlying(0x01), "01"),
         ];
 
-        encode_decode(short_high_cases)
+        encode_decode(short_high_cases);
+        assert_eq!(RangedInt::<u8, 256, 257>::from_underlying(0).to_i32(), 256);
+        assert_eq!(RangedInt::<u8, 256, 257>::from_underlying(0).to_underlying(), 0);
     }
 }

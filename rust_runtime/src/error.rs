@@ -11,6 +11,7 @@ use std::convert::Infallible;
 use std::error::Error;
 use std::fmt::{Debug, Display};
 use std::num::TryFromIntError;
+use std::ops::Sub;
 
 /// Enumerated error type for failures related to schema constructs
 /// that impose a check on the byte-width on their prospective values.
@@ -134,27 +135,28 @@ impl Error for HexConvError {}
 /// bounds or values, and therefore the `Copy` bound is also mandated here rather
 /// than just at associated function sites.
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
-pub enum BoundsError<Ext> {
+pub enum BoundsError<Ext: Debug> {
     Underflow { min: Ext, val: Ext },
     Overflow { max: Ext, val: Ext },
     InvalidBounds { min: Ext, max: Ext },
+    IllegalNegative { min: Ext, val: Ext },
     Failed(TryFromIntError),
 }
 
-impl<Ext> From<Infallible> for BoundsError<Ext> {
+impl<Ext: Debug> From<Infallible> for BoundsError<Ext> {
     fn from(_void: Infallible) -> Self {
         match _void {}
     }
 }
 
-impl<Ext> From<TryFromIntError> for BoundsError<Ext> {
+impl<Ext: Debug> From<TryFromIntError> for BoundsError<Ext> {
     fn from(err: TryFromIntError) -> Self {
         Self::Failed(err)
     }
 }
 
-impl<Ext> BoundsError<Ext> {
-    /// Checks that a value `val falls into the specified range `[min, max]`, returning
+impl<Ext: Debug> BoundsError<Ext> {
+    /// Checks that a value `val` falls into the specified range `[min, max]`, returning
     /// `Ok(val)` if this condition holds.
     ///
     /// If `val < min`, returns `Err(BoundsError::Underflow { .. })`
@@ -165,24 +167,37 @@ impl<Ext> BoundsError<Ext> {
     /// this comparison is handled by first converting all three values to
     /// the external numeric type `Ext`.
     ///
-    /// Attempts to 1Restricts input values of a numeric type `T: Into<Ext> + Copy>`
-    /// into the range defined by a lower and upper bound of type `U: Into<Ext>`.
+    /// # Boundary Case (`min > 0`)
     ///
-    /// If the provided value `x` is within the range bounds, this method leaves it unmodified
-    /// and returns `Ok(x)`;
-    /// otherwise, returns an `Err` containing the appropriate `OutOfRange` variant.
-    ///
+    /// If `min > 0`, it is implicitly unsound for `val < 0`, and otherwise
+    /// `val` will be interpreted as a non-negative offset from `min`. It is
+    /// then subject to the same validation (`MIN <= MAX` and `val <= MAX - MIN`),
+    /// but is not mapped into the specified range when it is returned.
     pub fn restrict<T, U>(val: T, min: U, max: U) -> Result<T, Self>
     where
-        Ext: PartialOrd + Copy,
+        Ext: PartialOrd + Copy + Sub<Output = Ext>,
         T: std::convert::TryInto<Ext> + Copy,
         U: Into<Ext> + PartialOrd,
+        i32: Into<Ext>,
         BoundsError<Ext>: From<T::Error>,
     {
         let min_ext: Ext = min.into();
         let max_ext: Ext = max.into();
         let val_ext = val.try_into()?;
-        if val_ext >= min_ext {
+        if min_ext > 0.into() {
+            if val_ext < 0.into() {
+                return Err(BoundsError::IllegalNegative { min: min_ext, val: val_ext });
+            } else if max_ext < min_ext {
+                return Err(Self::InvalidBounds {
+                min: min_ext,
+                max: max_ext,
+             });
+            } else if val_ext > max_ext - min_ext {
+                return Err(Self::Overflow { max: max_ext - min_ext, val: val_ext });
+            } else {
+                return Ok(val);
+            }
+        } else if val_ext >= min_ext {
             if val_ext <= max_ext {
                 Ok(val)
             } else if min_ext > max_ext {
@@ -232,7 +247,7 @@ impl BoundsError<f64> {
     }
 }
 
-impl<Ext: Display> Display for BoundsError<Ext> {
+impl<Ext: Debug + Display> Display for BoundsError<Ext> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             BoundsError::Underflow { ref min, ref val } => {
@@ -254,6 +269,13 @@ impl<Ext: Display> Display for BoundsError<Ext> {
             }
             BoundsError::Failed(err) => {
                 write!(f, "could not convert for bounds-checking: {}", err)
+            }
+            BoundsError::IllegalNegative { ref min, ref val } => {
+                write!(
+                    f,
+                    "negative value {} cannot be interpreted as a positive offset from minimum bound {} > 0",
+                    val, min
+                )
             }
         }
     }
