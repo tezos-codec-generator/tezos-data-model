@@ -47,7 +47,7 @@ smallvec = { version = "1.8.0", optional = true, features = [
 ] }
 
 [dev-dependencies]
-criterion = "0.3"
+criterion = "0.4"
 
 [[bench]]
 name = "parser_bench"
