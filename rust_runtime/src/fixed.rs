@@ -9,11 +9,43 @@
 
 use crate::conv::{len, target::Target, Decode, Encode};
 use crate::parse::{ParseResult, Parser};
+use std::borrow::Borrow;
 use std::convert::{TryInto, TryFrom};
 use std::str::FromStr;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct FixedBytes<const N: usize>([u8; N]);
+
+impl<const N: usize> AsRef<[u8; N]> for FixedBytes<N> {
+    fn as_ref(&self) -> &[u8; N] {
+        &self.0
+    }
+}
+
+impl<const N: usize> AsRef<[u8]> for FixedBytes<N> {
+    fn as_ref(&self) -> &[u8] {
+        &self.0
+    }
+}
+
+impl<const N: usize> Borrow<[u8]> for FixedBytes<N> {
+    fn borrow(&self) -> &[u8] {
+        &self.0
+    }
+}
+
+impl<const N: usize> From<FixedBytes<N>> for Vec<u8> {
+    fn from(bytes: FixedBytes<N>) -> Self {
+        bytes.0.into()
+    }
+}
+
+impl<const N: usize> From<FixedBytes<N>> for [u8; N] {
+    fn from(bytes: FixedBytes<N>) -> Self {
+        bytes.0
+    }
+}
+
 
 impl<const N: usize> Default for FixedBytes<N>
 where
