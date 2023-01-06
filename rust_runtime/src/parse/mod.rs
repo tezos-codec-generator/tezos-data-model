@@ -774,6 +774,12 @@ pub mod memoparser {
         }};
     }
 
+    impl MemoParser {
+        pub fn dump_state(&self) {
+            eprint_munches!(self);
+        }
+    }
+
     impl Parser for MemoParser {
         type Buffer = VecBuffer;
 
