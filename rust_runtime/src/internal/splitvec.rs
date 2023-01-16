@@ -782,8 +782,9 @@ impl std::fmt::Display for SplitVec<u8> {
         let mut ix: usize = 0;
         for l in self.spans.iter() {
             for &byte in &buf[ix..ix + l] {
-                write!(f, "{byte:02x}|")?
+                write!(f, "{byte:02x}")?;
             }
+            write!(f, "|")?;
             ix += l;
         }
         write!(f, "]")

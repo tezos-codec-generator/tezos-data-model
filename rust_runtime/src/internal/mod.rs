@@ -16,10 +16,10 @@
 //! of vector-oriented `Parser` types, namely `ByteParser` and its
 //! cousin `MemoParser`.
 
-pub(crate) mod offset;
-pub(crate) mod splitvec;
-pub(crate) mod stack;
-pub(crate) mod view;
+pub mod offset;
+pub mod splitvec;
+pub mod stack;
+pub mod view;
 
-pub(crate) use splitvec::SplitVec;
+pub use splitvec::SplitVec;
 pub(crate) use stack::Stack;

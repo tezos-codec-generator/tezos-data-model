@@ -29,6 +29,7 @@ implicit_hexstring = []
 check_padding = []
 index_binary_formatting = []
 unfreeze_spanbuffer = []
+expose_internal = []
 smallvec_framestack = ["smallvec"]
 
 [dependencies]

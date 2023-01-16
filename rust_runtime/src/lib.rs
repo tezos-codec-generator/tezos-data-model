@@ -57,7 +57,6 @@ pub mod adt;
 pub mod autobox;
 pub mod builder;
 pub mod conv;
-pub mod default;
 pub mod dynamic;
 pub mod error;
 pub mod fixed;
@@ -71,6 +70,9 @@ pub mod prim;
 pub mod schema;
 pub mod seq;
 pub mod zarith;
+
+#[cfg(feature = "expose_internal")]
+pub use crate::internal;
 
 pub use crate::autobox::AutoBox;
 pub use crate::builder::{memo::MemoBuilder, strict::StrictBuilder, Builder};
