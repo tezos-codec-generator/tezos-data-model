@@ -7,14 +7,60 @@
 //! In both cases, the const generic `N` is the number of bytes
 //! such a value is required to contain.
 
-use crate::conv::{len, target::Target, Decode, Encode};
-use crate::parse::{ParseResult, Parser};
+use crate::conv::{ len, target::Target, Decode, Encode };
+use crate::parse::{ ParseResult, Parser };
 use std::borrow::Borrow;
-use std::convert::{TryInto, TryFrom};
+use std::convert::{ TryInto, TryFrom };
 use std::str::FromStr;
 
+/// Simple type for holding fixed-length binary sequences.
+///
+/// While [FixedBytes<N>] is naturally implemented around `[u8; N]`,
+/// it is preferable to use this type instead, in order to signal to
+/// downstream consumers that the data in question is specifically
+/// intended to be interpreted as raw binary data, and not as an unboxed
+/// UTF-8 string (as with [FixedString<N>]).
+///
+/// Many intuitive conversion traits are implemented to allow flexible
+/// construction and reinterpretation of `FixedBytes` values, with
+/// comparably little overhead versus using arrays directly.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(transparent)]
 pub struct FixedBytes<const N: usize>([u8; N]);
+
+impl<const N: usize> FixedBytes<N> {
+    /// Returns the (constant) length of a [FixedBytes<N>] in bytes,
+    /// namely `N`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use rust_runtime::fixed::FixedBytes;
+    /// assert_eq!(FixedBytes::<5>::from(&[1,2,3,4,5u8]), 5);
+    /// ```
+    #[inline(always)]
+    #[must_use]
+    pub const fn len(&self) -> usize {
+        N
+    }
+
+    /// Returns a constant slice reference to the contents of a borrowed
+    /// [FixedBytes<N>]
+    #[inline(always)]
+    #[must_use]
+    pub const fn as_slice(&self) -> &[u8; N] {
+        &self.0
+    }
+
+    /// Returns a freshly-allocated [Vec<u8>] holding the same contents as
+    /// a borrowed [FixedBytes<N>].
+    #[inline(always)]
+    #[must_use]
+    pub fn to_vec(&self) -> Vec<u8> {
+        self.0.to_vec()
+    }
+}
+
 
 impl<const N: usize> AsRef<[u8; N]> for FixedBytes<N> {
     fn as_ref(&self) -> &[u8; N] {
@@ -24,6 +70,12 @@ impl<const N: usize> AsRef<[u8; N]> for FixedBytes<N> {
 
 impl<const N: usize> AsRef<[u8]> for FixedBytes<N> {
     fn as_ref(&self) -> &[u8] {
+        &self.0
+    }
+}
+
+impl<const N: usize> Borrow<[u8; N]> for FixedBytes<N> {
+    fn borrow(&self) -> &[u8; N] {
         &self.0
     }
 }
@@ -46,11 +98,7 @@ impl<const N: usize> From<FixedBytes<N>> for [u8; N] {
     }
 }
 
-
-impl<const N: usize> Default for FixedBytes<N>
-where
-    [u8; N]: Default,
-{
+impl<const N: usize> Default for FixedBytes<N> where [u8; N]: Default {
     fn default() -> Self {
         Self(Default::default())
     }
@@ -59,6 +107,20 @@ where
 impl<const N: usize> From<&[u8; N]> for FixedBytes<N> {
     fn from(arr: &[u8; N]) -> Self {
         Self(*arr)
+    }
+}
+
+impl<const N: usize> From<[u8; N]> for FixedBytes<N> {
+    fn from(value: [u8; N]) -> Self {
+        Self(value)
+    }
+}
+
+impl<'a, const N: usize> TryFrom<&'a [u8]> for FixedBytes<N> {
+    type Error = <[u8; N] as TryFrom<&'a [u8]>>::Error;
+
+    fn try_from(value: &'a [u8]) -> Result<Self, Self::Error> {
+        Ok(Self(value.try_into()?))
     }
 }
 
@@ -90,7 +152,7 @@ impl<const N: usize> Encode for FixedBytes<N> {
 
 impl<const N: usize> Decode for FixedBytes<N> {
     fn parse<P: Parser>(p: &mut P) -> ParseResult<Self> {
-        Ok(FixedBytes(p.take_fixed::<N>()?))
+        Ok(Self(p.take_fixed::<N>()?))
     }
 }
 
@@ -131,9 +193,8 @@ impl<const N: usize> FixedString<N> {
     ///
     pub fn try_from_array(arr: &[u8; N]) -> Result<Self, std::str::Utf8Error> {
         let _ = std::str::from_utf8(arr)?;
-        Ok( Self { contents: *arr })
+        Ok(Self { contents: *arr })
     }
-
 
     pub fn as_str(&self) -> &str {
         unsafe { std::str::from_utf8_unchecked(&self.contents) }
@@ -160,7 +221,6 @@ impl<const N: usize> FixedString<N> {
             })
         }
     }
-
 }
 
 impl<const N: usize> len::FixedLength for FixedString<N> {
@@ -222,7 +282,6 @@ impl<const N: usize> Encode for FixedString<N> {
     }
 }
 
-
 impl<const N: usize> Decode for FixedString<N> {
     fn parse<P: Parser>(p: &mut P) -> ParseResult<Self> {
         Ok(p.take_fixed::<N>()?.into())
@@ -237,8 +296,8 @@ impl<const N: usize> std::fmt::Display for FixedString<N> {
 
 #[cfg(test)]
 mod fixedstring_tests {
-    use crate::{Builder, StrictBuilder};
-    use std::{borrow::Borrow, convert::TryFrom};
+    use crate::{ Builder, StrictBuilder };
+    use std::{ borrow::Borrow, convert::TryFrom };
 
     use super::*;
 
@@ -256,10 +315,7 @@ mod fixedstring_tests {
     fn check_arr<const N: usize>(case: &[u8; N]) {
         let res = FixedString::<N>::decode(case);
         assert_eq!(res, FixedString::from(case));
-        assert_eq!(
-            <StrictBuilder as Borrow<[u8]>>::borrow(&res.encode::<StrictBuilder>()),
-            case
-        );
+        assert_eq!(<StrictBuilder as Borrow<[u8]>>::borrow(&res.encode::<StrictBuilder>()), case);
     }
 
     #[test]
@@ -272,10 +328,7 @@ mod fixedstring_tests {
 #[cfg(test)]
 mod fixedbytes_tests {
     use super::*;
-    use crate::{
-        builder::{strict::StrictBuilder, Builder},
-        hex,
-    };
+    use crate::{ builder::{ strict::StrictBuilder, Builder }, hex };
 
     #[test]
     fn bytestring_hex() {
@@ -289,9 +342,6 @@ mod fixedbytes_tests {
     fn bytestring_ascii() {
         let b = FixedBytes::<12>::decode(b"hello world!");
         assert_eq!(b, FixedBytes::from(b"hello world!"));
-        assert_eq!(
-            b.encode::<StrictBuilder>().into_bin().unwrap(),
-            "hello world!"
-        );
+        assert_eq!(b.encode::<StrictBuilder>().into_bin().unwrap(), "hello world!");
     }
 }
