@@ -1,10 +1,10 @@
-# `runtime`/`rust_runtime`
+# `tezos-data-model`
 
-The `runtime` package consists of a library, `rust_runtime`, with common utility
+The `tezos-data-model` package consists of a library, `tedium`, with common utility
 code for codec modules generated in the Rust language, through the
 `codec_generator` compilation pipeline.
 
-As the project is still under experimental development, many aspects of `runtime`
+As the project is still under experimental development, many aspects of `tedium`
 may be subject to change as it evolves: the name of the package itself or the library
 it contains, where it is hosted, the overall API design, its dependency list, and
 its implementation details are among these variable details.
@@ -19,9 +19,21 @@ the design model it is based on, and pertinent API details, especially those tha
 are less likely to be changed drastically. Specific implementation details may
 be found in the in-library documentation as applicable.
 
+## Naming
+
+The original name for this package, in its original incarnation as a subdirectory of
+the `codec_generator` [repo](http://gitlab.com/archaephyrryx/codec_generator), was
+`rust_runtime`. As a prospective fixup for this opaque and somewhat redundant name
+('rust' is perfunctory as it is self-evident, and 'runtime' is not evocative enough
+of what it actually is for), `tezos-data-model` is the strongest candidate for
+the overall package name, as an experimentally standalone repository.
+
+However, since the now-descriptive naming is rather unwieldy as a qualifier in actual code,
+the pithy name 'tedium' is taken from the initialism **T**ezos **D**ata **M**odel.
+
 ## Overview
 
-The `rust_runtime` library is intended to provide a flexible and potentially
+The `tedium` library is intended to provide a flexible and potentially
 interchangeable framework, in terms of which lightweight and portable codec
 modules can be produced. This requires a certain amount of API-specific
 hard-coding in the `codec_generator` tool itself, but most of the implementation
@@ -39,7 +51,7 @@ arbitrarily complex (at least in theory) codec type definitions.
 
 ### High-Level Approach
 
-The `rust_runtime` library is built around a model of structurally inductive transcoding using two traits:
+The `tedium` library is built around a model of structurally inductive transcoding using two traits:
 
 - `Encode` :
   Trait marking a type as serializable.
@@ -72,7 +84,7 @@ equivalently to transcoding operations based directly in Ocaml and
 
 ### Internal Approach and Abstraction
 
-As of the current iteration of the `rust_runtime` library, the details of
+As of the current iteration of the `tedium` library, the details of
 `Encode` and `Decode` are refined beyond the bare minimum methods listed above,
 and in turn rely on other definitions in the library to be used effectively.
 Those methods, and the constructs they rely upon, are listed below:
@@ -303,6 +315,6 @@ performed.
 
 ## Known Bugs
 
-This section contains a list of known bugs in the runtime implementation,
+This section contains a list of known bugs in the tedium implementation,
 which are intended to be fixed expediently but not precluding other
 work.
