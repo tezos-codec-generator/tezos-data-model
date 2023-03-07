@@ -11,9 +11,9 @@ pub fn decode_derive(input: TokenStream) -> TokenStream {
 }
 
 fn impl_decode(ast: &syn::DeriveInput) -> TokenStream {
-    let decode_trait = quote! { rust_runtime::conv::Decode };
-    let parser_trait = quote! { rust_runtime::parse::Parser };
-    let parse_result_type = quote! { rust_runtime::parse::ParseResult };
+    let decode_trait = quote! { tedium::conv::Decode };
+    let parser_trait = quote! { tedium::parse::Parser };
+    let parse_result_type = quote! { tedium::parse::ParseResult };
 
 
     let name = &ast.ident;

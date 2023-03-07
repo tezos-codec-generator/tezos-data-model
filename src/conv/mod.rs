@@ -1,13 +1,13 @@
 //! Core of the binary-conversion API
 //!
-//! This module provides the primary functionality of the runtime, the trait definitions
-//! for `Encode` and `Decode`, which are motivationally equivalent to the `Serialize` and `Deserialize`
-//! traits defined in `serde`, for example.
+//! This module contains definitions for the high-level transcoding traits
+//! `Encode` and `Decode`, which are motivationally equivalent to the
+//! `Serialize` and `Deserialize` traits defined in `serde`.
 //!
 //! While a great deal of the underlying machinery of this crate is subject to customization
-//! by end-users, such as the definition of custom `Parser` and `Target` trait implementors,
-//! `Encode` and `Decode` form the core of this library, and substituting them wholesale would
-//! be morally equivalent to using a different runtime library.
+//! by end-users, such as the selection or novel definitions of `Parser` and `Target` implementations,
+//! `Encode` and `Decode` serve as the core of this library. Any upstream library that does not use
+//! `Encode` or `Decode` even indirectly, will ultimately derive little to no benefit from this library.
 //!
 //! While the internal implementations may change, this module exposes a comparatively stable API,
 //! as the structures of `Encode` and `Decode` cannot be altered without drastic changes not only to the
@@ -17,16 +17,18 @@
 //! The sub-module [`len`], which defines `Estimable` and its refinements, is also
 //! a major feature of the runtime, but to a far lesser extent; it is possible to eliminate Estimable
 //! entirely and code around it in certain places without much side-effect, while Encode and Decode
-//! cannot be easily deprecated or phased out.
+//! are fundamental enough that they would be nearly impossible to deprecate without significantly
+//! reducing the usefulness of this library.
 //!
-//! An additional submodule, [`target`], offers an abstraction around [`std::io::Write`], namely the
+//! An additional submodule, [`target`], offers an abstraction along the lines of [`std::io::Write`], namely the
 //! [`target::Target`] trait. This is the dual to [`crate::parse::Parser`], acting as the generic
-//! bound for serialization in the [`Decode::write_to`] method among others.
+//! bound for serialization in the [`Decode::write_to`] method, among others.
 //!
 //! Derive macros for Encode, Decode, and even Estimable are provided in the sub-crates `encode_derive`,
-//! `decode_derive`, and `estimable_derive`, which are only relevant within the context of this runtime.
+//! `decode_derive`, and `estimable_derive`, which are only relevant within the context of this library,
+//! and otherwise offer no standalone functionality.
 
-use crate::parse::{ParseResult, Parser, TryIntoParser};
+use crate::parse::{ ParseResult, Parser, TryIntoParser };
 
 use self::target::Target;
 
@@ -38,21 +40,22 @@ pub use error::DecodeResult;
 
 #[macro_export]
 macro_rules! write_all_to {
-    ( $($x:expr),* $(,)? => $tgt:expr ) => {
+    ($($x:expr),* $(,)? => $tgt:expr) => {
         { $( $x.write_to($tgt) + )* $crate::conv::target::Target::resolve_zero($tgt) }
     };
 }
 
-/// Trait providing methods for serializing values of a certain type
+/// Trait for types that support serialization into an Octez-interoperable binary form
 ///
-/// This trait should only be implemented on types for which there is
-/// a standard binary encoding scheme within the `data-encoding` OCaml library,
+/// The `Encode` trait is used for types that act as Rust-local analogues of Tezos protocol
+/// types as defined in Octez, and for which there is a corresponding conversion process from
+/// the language-bound value to a cross-language interoperable binary format, based on the
+/// appropriate encoding scheme based in the `data-encoding` (OCaml) library.
 ///
-/// Implementations are defined by one required method, [`write_to`]:
-///   * The `write_to` method writes the received object (generic, bound by
-///     [`Target`]) to the specified buffer, returning the number of bytes that
-///     were written. Unlike [`std::io::Write::write`], it is infallible, though
-///     that detail may change in later versions.
+/// Implementing [`Encode`] can be as simple as providing a definition of the required method
+/// [`write_to`], but for types that have efficient overrides for the other default-implemented
+/// methods, such optimizations are recommended as long as the implementations conform to the
+/// specified invariants of each method.
 ///
 /// If the implementing type can implement the remaining methods more efficiently than
 /// the default implementations allow for, it is recommended to override them, provided
@@ -60,30 +63,61 @@ macro_rules! write_all_to {
 ///
 /// [`Target`]: crate::conv::target::Target
 pub trait Encode {
-    /// Appends the serialized bytes of `self` to `buf`
+    /// Appends the serialized bytes of this value to a generic buffer,
+    /// returning the exact number of bytes written
+    ///
+    /// Morally related to the trait method [`std::io:Write::write`], with the caveat
+    /// that `write_to` should be infallible under almost all operating conditions,
+    /// as well as being generic over any buffer that satisfies the trait-bound of
+    /// [`Target`][crate::conv::target::Target].
     ///
     /// The natural definition of this method is structurally inductive on the
     /// physical or virtual fields of the type in question, in conformance with
     /// the serialization format defined by `data-encoding`.
     fn write_to<U: Target>(&self, buf: &mut U) -> usize;
 
-    /// Appends the serialzed bytes of `self` to `buf`
+    /// Appends the serialized bytes of this value to a monomorphized [`Vec<u8>`] buffer.
     ///
-    /// This method is a specialized variant of [`write_to`] for `Vec<u8>`
-    /// targets.
+    /// This method is a specialized variant of [`write_to`] for `Vec<u8>` targets, that
+    /// may be overridden if there is an efficient implementation for that specific case.
+    ///
+    /// As a partial specialization, this method also does not return the number of bytes
+    /// written to the vector, as such book-keeping may impose unnecessary overhead on
+    /// overridden implementations that would normally be more efficient than [`write_to`].
+    #[inline]
     fn write_to_vec(&self, buf: &mut Vec<u8>) {
         let _ = self.write_to(buf);
     }
 
-    /// Constructs and returns a buffer of type `U` that has been populated with the
-    /// serialized bytes of `self`
+    /// Creates a new buffer and fills it with the serialized bytes of this value.
+    ///
+    /// If Rust ever supports specialization, this method may be overridden to provide
+    /// more efficient implementations than the default. As it is, however, the default
+    /// implementation is not expected to be less efficient than any potential override,
+    /// due to the generic nature of the return type.
+    #[must_use]
+    #[inline]
     fn encode<U: Target>(&self) -> U {
         let mut buf: U = U::create();
         let _ = self.write_to::<U>(&mut buf);
         buf
     }
 
-    /// Constructs and returns a `Vec<u8>` containing the serialized bytes of `self`
+    /// Creates a [`Vec<u8>`] and fills it with the serialized bytes of this value.
+    ///
+    /// If the number of bytes required for the serialization of a given value can
+    /// be determined in advance (e.g. through the [`Estimable`][crate::conv::len::Estimable] trait family),
+    /// then the initial allocation can be optimized for that size to avoid amortized reallocation costs.
+    ///
+    /// # Note
+    ///
+    /// A related method on an extension trait, specifically [`EncodeLength::to_bytes_full`],
+    /// will typically outperform this method even in its default implementation. However, both
+    /// methods may benefit from implementation-specific overrides if the size of the serialized buffer
+    /// can be precomputed cheaply. In that case, the initial allocation can be tailored to the ultimate
+    /// maximum capacity required for the buffer, so that reallocation costs are avoided.
+    #[must_use]
+    #[inline]
     fn to_bytes(&self) -> Vec<u8> {
         let mut buf = Vec::new();
         self.write_to_vec(&mut buf);
@@ -91,20 +125,19 @@ pub trait Encode {
     }
 }
 
-/// Extension trait for `Encode` with serialization-length oracles
+/// Extension trait for `Encode` that makes use of serialization-length oracles
 ///
-/// This trait defines additional methods on an `Encode` type, which allow
-/// for zero-allocation computations of the number of bytes in the serialization
-/// of a value, as well as a zero-realloc version of [`Encode::to_bytes`] based
-/// on this count.
+/// This trait defines additional methods on an `Encode` type, which can determine
+/// the exact number of bytes in the serialized version of a value without requiring
+/// allocations, as well as an optimization of [`Encode::to_bytes`] that
+/// makes use of this prediction to avoid reallocation costs.
 pub trait EncodeLength: Encode {
     /// Computes, without allocation, the number of bytes in the serialized
     /// form of `self`, based on the implementation of [`Encode::write_to`].
     ///
-    /// The default implementation of this method uses a target of [`ByteCounter`]
-    /// to discard the bytes that would be written by [`write_to`], preserving only
-    /// the return-value, equal to the number of bytes that were 'written' in this
-    /// manner.
+    /// The default implementation of this method invokes [`write_to`] over the
+    /// zero-allocation target [`ByteCounter`], whose return value is the number
+    /// of bytes that were 'written'.
     ///
     /// # Optimization
     ///
@@ -193,9 +226,9 @@ impl<T: Encode + len::Estimable + ?Sized> EncodeLength for T {
 /// A typical hand-written implementation of `Decode` is provided below:
 ///
 /// ```
-/// # use ::rust_runtime::parse::{Parser, ParseResult, byteparser::ByteParser};
-/// use rust_runtime::Decode;
-/// use rust_runtime::{VPadded, Bytes, Sequence, seq};
+/// # use ::tedium::parse::{Parser, ParseResult, byteparser::ByteParser};
+/// use tedium::Decode;
+/// use tedium::{VPadded, Bytes, Sequence, seq};
 ///
 /// #[derive(Debug, PartialEq)]
 /// pub struct MyTypeElem {
@@ -236,9 +269,7 @@ pub trait Decode {
     ///
     /// In rare cases, it may be necessary to return newly minted `ParseError`
     /// values based on certain invariants of the type being parsed.
-    fn parse<P: Parser>(p: &mut P) -> ParseResult<Self>
-    where
-        Self: Sized;
+    fn parse<P: Parser>(p: &mut P) -> ParseResult<Self> where Self: Sized;
 
     /// Attempt to decode a value of the `Self` type from a value `input` of the
     /// generic type `U: TryIntoParser<P>`.
@@ -258,11 +289,7 @@ pub trait Decode {
     /// If this method call returns an error, or returns successfully but indicates
     /// an incomplete parse, an appropriate [`DecodeError`] will be returned.
     fn try_decode<U, P>(input: U) -> DecodeResult<Self>
-    where
-        Self: Sized,
-        P: Parser,
-        U: TryIntoParser<P>,
-        error::DecodeError: From<U::Error>
+        where Self: Sized, P: Parser, U: TryIntoParser<P>, error::DecodeError: From<U::Error>
     {
         let mut p: P = input.try_into_parser()?;
         let ret = Self::parse(&mut p)?;
@@ -292,10 +319,10 @@ pub trait Decode {
     /// [`MemoParser`]: crate::parse::memoparser::MemoParser
     /// [`ByteParser`]: crate::parse::memoparser::ByteParser
     fn decode_memo<U>(inp: U) -> Self
-    where
-        Self: Sized,
-        U: TryIntoParser<crate::parse::memoparser::MemoParser>,
-        error::DecodeError: From<U::Error>
+        where
+            Self: Sized,
+            U: TryIntoParser<crate::parse::memoparser::MemoParser>,
+            error::DecodeError: From<U::Error>
     {
         Self::try_decode(inp).unwrap_or_else(|_| {
             panic!(
@@ -319,10 +346,7 @@ pub trait Decode {
     ///
     /// [`ByteParser`]: crate::parse::memoparser::ByteParser
     fn decode<U>(inp: U) -> Self
-    where
-        Self: Sized,
-        U: TryIntoParser,
-        error::DecodeError: From<U::Error>
+        where Self: Sized, U: TryIntoParser, error::DecodeError: From<U::Error>
     {
         Self::try_decode(inp).unwrap_or_else(|err| {
             panic!(
@@ -396,17 +420,10 @@ impl<T: Decode> Decode for Option<T> {
 
 #[cfg(test)]
 mod test {
-    use crate::{Builder, Encode, StrictBuilder};
+    use crate::{ Builder, Encode, StrictBuilder };
 
     #[test]
     fn check() {
-        assert_eq!(
-            (b"foo")
-                .to_vec()
-                .encode::<StrictBuilder>()
-                .into_bin()
-                .unwrap(),
-            "foo"
-        );
+        assert_eq!(b"foo".to_vec().encode::<StrictBuilder>().into_bin().unwrap(), "foo");
     }
 }

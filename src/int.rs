@@ -47,7 +47,7 @@ impl Integral for i32 {}
 /// Minimum value representable using OCaml 31-bit integers
 ///
 /// ```
-/// # use ::rust_runtime::int::MIN_OCAML_NATIVE_INT;
+/// # use ::tedium::int::MIN_OCAML_NATIVE_INT;
 /// assert_eq!(MIN_OCAML_NATIVE_INT, -(1i32 << 30));
 /// assert_eq!(MIN_OCAML_NATIVE_INT, i32::MIN / 2);
 /// ```
@@ -57,7 +57,7 @@ pub const MIN_OCAML_NATIVE_INT: i32 = -0x4000_0000;
 /// Maximum value representable using OCaml 31-bit integers
 ///
 /// ```
-/// # use ::rust_runtime::int::MAX_OCAML_NATIVE_INT;
+/// # use ::tedium::int::MAX_OCAML_NATIVE_INT;
 /// assert_eq!(MAX_OCAML_NATIVE_INT, (1i32 << 30) - 1);
 /// assert_eq!(MAX_OCAML_NATIVE_INT, i32::MAX / 2);
 /// ```
@@ -66,7 +66,7 @@ pub const MAX_OCAML_NATIVE_INT: i32 = 0x3fff_ffff;
 /// Maximum value representable using OCaml 30-bit unsigned integers
 ///
 /// ```
-/// # use ::rust_runtime::int::MAX_OCAML_NATIVE_UINT;
+/// # use ::tedium::int::MAX_OCAML_NATIVE_UINT;
 /// assert_eq!(MAX_OCAML_NATIVE_UINT, (1u32 << 30) - 1);
 /// assert_eq!(MAX_OCAML_NATIVE_UINT, (u32::MAX >> 2));
 /// ```
@@ -314,7 +314,7 @@ where
     /// # Examples
     ///
     /// ```
-    /// # use ::rust_runtime::int::RangedInt;
+    /// # use ::tedium::int::RangedInt;
     /// assert_eq!(RangedInt::<u8, 1023, 1025>::from_underlying(0).to_underlying(), 0);
     /// assert_eq!(RangedInt::<u8, 1023, 1025>::from_underlying(0).to_i32(), 1023);
     /// ```
@@ -344,7 +344,7 @@ where
     /// # Examples
     ///
     /// ```
-    /// # use ::rust_runtime::int::RangedInt;
+    /// # use ::tedium::int::RangedInt;
     /// assert_eq!(RangedInt::<u8, 1024, 1200>::from_underlying(0).to_i32(), 1024);
     /// ```
     pub fn to_i32(self) -> i32 {

@@ -1,6 +1,6 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 
-use rust_runtime::{SliceParser, TryIntoParser, ByteParser, MemoParser};
+use tedium::{SliceParser, TryIntoParser, ByteParser, MemoParser};
 
 
 const INPUT: &'static [u8] = b"This is a sample buffer we wish to parse out and figure out which is faster, ByteParser or SliceParser.";

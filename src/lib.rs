@@ -1,53 +1,58 @@
-//! Rust(lang) Runtime for the OCaml-based `data-encoding` codec-generator pipeline
+//! Model for representing and transcoding data types in the Tezos protocol
 //!
 //! # Overview
 //!
-//! This crate is both an implementation of, and implicitly a general API specification for,
-//! the common Rust and domain-specific constructions that are imported and used by the Rust
-//! codec modules that are compiled by the codec generator pipeline that exists as a semi-independent
-//! sub-project of the OCaml `data-encoding` library. Though the exact details of the API are not
-//! yet rigid, the general design is centered around the traits `Encode` and `Decode`, which
-//! respectively define the methods required for serialization and deserialization between the
-//! binary data representing an OCaml type via `data-encoding`, and the imputed form of its Rust-based
-//! equivalent type. Each codec module will typically consist of a type-definition or type-alias for
-//! the codec type represented in the original schema being compiled, and either machine-generated
-//! or derive-macro facilitated implementations of `Encode` and `Decode` on that type, provided
-//! it is not an alias for a type with such implementations already defined in this library.
+//! This library and its associated crate serve as a backbone for the machine-generation of
+//! Rust modules that represent individual data types in the Tezos protocol. Such modules,
+//! referred to as 'codecs' in the parlance of the original project `codec_generator` that this
+//! crate is a derivative of, would normally require a great deal of boilerplate, both for generic
+//! low-level serialization and deserialization tasks, and complex logic tailored to the primary
+//! and auxiliary types of the original 'schema'.
+//!
+//! Rather than forcing the generator logic to write bespoke structures and logic for relatively
+//! ubiquitous patterns, `tedium` offers a centralized implementation of common types and traits
+//! that allow for derivable transcoding implementations based on a structurally inductive paradigm.
+//! 'Primitive' and 'composite' types, which represent low-level data objects and functors, form
+//! the core of each machine-generated type, with ad-hoc types such as records, tuples, and algebraic
+//! types supported via macros.
+//!
+//! A number of aspects of this library offer end-users the option to hand-write implementors of the
+//! core library traits, to provide specialized parsers and serialization targets.
+//!
+//! The high-level traits `Encode` and `Decode` are the keystones of the `tedium` library. They
+//! respectively define methods for serialization and deserialization of Rust-based analogues
+//! for Tezos-relevant OCaml types , to and from the proprietary binary
+//! encoding scheme described and defined by the `data-encoding` (OCaml) library.
 //!
 //! # Background
 //!
 //! The `data-encoding` library, developed and maintained by Nomadic Labs, is the de facto
-//! serialization/deserialization format of the `octez` implementation of the Tezos protocol.
-//! Virtually all constants, parameters, and values that are defined and used within the Tezos
-//! economic protocol, whether in P2P communication, RPC calls, or in on-disc storage, originate
-//! as instances of OCaml types, whose binary formats are declared in the DSL of `data-encoding`
-//! primitives and combinators.
+//! serialization/deserialization format of 'Octez' (the canonical implementation of the Tezos protocol, written in OCaml).
+//! Virtually all constants, parameters, and values that are defined and used within the Tezos ecosystem,
+//! across various contexts and formats, originate as instances of OCaml types, whose binary representation strategies
+//! are declared in the Domain-Specific Language of `data-encoding` primitives and combinators.
 //!
 //! For the purposes of writing any sort of client library that interacts with such values, it is
-//! necessary to establish a consistent and interoperable view of the subset of value-types that
-//! are relevant to the library's scope. Furthermore, as new protocol versions
-//! are voted in, newly introduced or otherwise changed definitions of existing protocol types
-//! must also be reflected in the library as well. The status quo requires that this be done by hand, consulting either documentation or `octez` source-code
-//! to infer the intended structure and use of each new or modified type-definition, which in turn
-//! necessitates a certain level of literacy in `Ocaml` that may not always be sufficient in light of
-//! the intricacies of the `data-encoding` DSL and the complex and widely inter-connected nature
-//! of the `Octez` source-tree.
+//! necessary to establish a consistent and interoperable view of, at the very least, the subset of data-types that
+//! are of relevance to the library's intended functionality. Furthermore, as new protocol versions
+//! are proposed and introduced on-chain, any code that deals with protocol-specific type-definitions
+//! can become obsolete or unsafe with each new release. As a consequence, there is a continual burden
+//! imposed on developers of maintaining their type definitions and associated logic, so that it remains
+//! in sync with the raw data coming in from various sources.
 //!
-//! In order to facilitate more seamless and reliable continuous integration and interoperability
-//! between client libraries and the Tezos economic protocol, the [`codec_generator`] sub-project
-//! of the `data-encoding` library aims to provide automatic compilation from the original binary
-//! encoding specification of a type, into *codec* modules in arbitrary target languages, to the
-//! extent that there are client libraries written in those languages that could make use of this
-//! aid.
+//! In order to facilitate more seamless and reliable interoperability
+//! between client libraries and the Tezos economic protocol, the [`codec_generator`] project
+//! is designed to provide automatic compilation from the associated encoding-schemas of Tezos-relevant OCaml types
+//! into *codec* modules in various languages and formats.
 //!
-//! Rather than hand-roll the entire set of low-level type definitions and functions required for
-//! parsing a simple codec when compiling each schema, this crate serves as a static runtime for
-//! machine-generated codec modules to code against, which means that common definitions can be
-//! imported instead of redefined, and the process of review and debugging can be done against
-//! a static crate rather than a theoretical set of definitions hard-coded as boilerplate Rust AST
-//! values in OCaml sourcefiles.
+//! This library serves as an analogous model for the structural encoding specifications of
+//! the `data-encoding` library, that can facilitate more lightweight *codec* generation by
+//! eliminating as many lines of boilerplate as possible, from each generated file. Simultaneously,
+//! it also defines the type-language in which such codec types are expressed, such that downstream
+//! consumers of such code can interpret and operate on machine-generated codecs in more consistent
+//! and predictable ways.
 //!
-//! [`codec_generator`]: Originally a separate project known as `tezos-codec-compiler`
+//! [`codec_generator`]: Originally a separate project known as `tezos-codec-compiler`.
 
 extern crate decode_derive;
 extern crate encode_derive;

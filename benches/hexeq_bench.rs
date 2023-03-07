@@ -1,6 +1,6 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 
-use rust_runtime::HexString;
+use tedium::HexString;
 
 const INPUT: [u8; 36] =
     [

@@ -72,7 +72,7 @@ pub const fn from_const_generic(bound: u64) -> f64 {
 /// In place of a concrete type signature:
 ///
 /// ```
-/// # use ::rust_runtime::{RangedF64};
+/// # use ::tedium::{RangedF64};
 /// use std::f64::consts::{E, PI};
 /// pub type FromEToPi = RangedF64!{E, PI};
 /// ```
@@ -80,14 +80,14 @@ pub const fn from_const_generic(bound: u64) -> f64 {
 /// When qualifying type-associated consts:
 ///
 /// ```
-/// # use ::rust_runtime::RangedF64;
+/// # use ::tedium::RangedF64;
 /// assert_eq!(<RangedF64!(f64::MIN, f64::MAX)>::MIN_F64, f64::MIN);
 /// ```
 ///
 /// When fully qualifying trait methods on `RangedFloat`:
 ///
 /// ```
-/// # use ::rust_runtime::RangedF64;
+/// # use ::tedium::RangedF64;
 /// assert_eq!(f64::default(), *<RangedF64!(-0.1,0.1) as Default>::default().as_f64());
 /// ```
 ///

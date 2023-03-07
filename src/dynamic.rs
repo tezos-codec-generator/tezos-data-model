@@ -290,7 +290,7 @@ impl LenPref for u8 {
     /// # Examples
     ///
     /// ```
-    /// # use ::rust_runtime::dynamic::LenPref;
+    /// # use ::tedium::dynamic::LenPref;
     /// assert_eq!(<u8 as LenPref>::max_len(), (1usize << 8) - 1);
     /// ```
     fn max_len() -> usize {
@@ -304,7 +304,7 @@ impl LenPref for u16 {
     /// # Examples
     ///
     /// ```
-    /// # use ::rust_runtime::dynamic::LenPref;
+    /// # use ::tedium::dynamic::LenPref;
     /// assert_eq!(<u16 as LenPref>::max_len(), (1usize << 16) - 1);
     /// ```
     fn max_len() -> usize {
@@ -321,7 +321,7 @@ impl LenPref for u30 {
     /// # Examples
     ///
     /// ```
-    /// # use ::rust_runtime::{dynamic::LenPref, int::u30};
+    /// # use ::tedium::{dynamic::LenPref, int::u30};
     /// assert_eq!(<u30 as LenPref>::max_len(), (1usize << 30) - 1);
     /// ```
     fn max_len() -> usize {

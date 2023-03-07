@@ -1,20 +1,20 @@
 [package]
-name = "runtime"
-description = "Common utility code for Octez codecs in Rust"
+name = "tezos-data-model"
+description = "Data model for representing and transcoding Tezos protocol types"
 version = "0.1.0"
 edition = "2021"
 license = "MIT"
-authors = ["Nomadic Labs"]
+authors = ["ECAD Labs"]
 categories = ["encoding", "parsing", "compilers", "api-bindings"]
 keywords = ["Tezos", "data-encoding"]
 publish = false
-repository = "https://gitlab.com/archaephyrryx/data-encoding"
+repository = "https://github.com/tezos-codec-generator/tezos-data-model"
 readme = "README.md"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [lib]
-name = "rust_runtime"
+name = "tedium"
 path = "src/lib.rs"
 bench = false
 

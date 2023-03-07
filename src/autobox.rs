@@ -20,7 +20,7 @@
 //! # Examples
 //!
 //! ```
-//! # use ::rust_runtime::{AutoBox, Encode, Decode, Estimable, Target, resolve_zero};
+//! # use ::tedium::{AutoBox, Encode, Decode, Estimable, Target, resolve_zero};
 //! pub struct U8Seq(u8, Option<AutoBox<U8Seq>>);
 //!
 //! impl Encode for U8Seq {
@@ -82,7 +82,7 @@ impl<T> AutoBox<T> {
     /// # Examples
     ///
     /// ```
-    /// # use rust_runtime::AutoBox;
+    /// # use tedium::AutoBox;
     /// let five = AutoBox::new(5u8);
     /// ```
     ///
@@ -103,7 +103,7 @@ impl<T> AutoBox<T> {
     /// # Examples
     ///
     /// ```
-    /// # use rust_runtime::AutoBox;
+    /// # use tedium::AutoBox;
     /// let five = AutoBox::new(5u8);
     /// assert_eq!(&5u8, Box::as_ref(&five.into_box()));
     /// ```
@@ -116,7 +116,7 @@ impl<T> AutoBox<T> {
     /// Consumes the `AutoBox<T>` and returns the owned value of type `T`
     /// contained within.
     /// ```
-    /// # use rust_runtime::AutoBox;
+    /// # use tedium::AutoBox;
     /// let five = AutoBox::new(5u8);
     /// assert_eq!(5u8, five.into_inner());
     /// ```
@@ -132,7 +132,7 @@ impl<T> AutoBox<T> {
     /// # Examples
     ///
     /// ```
-    /// # use rust_runtime::AutoBox;
+    /// # use tedium::AutoBox;
     /// let mut five = AutoBox::new(5u8);
     /// assert_eq!(&5u8, five.as_inner());
     /// *(five.as_mut_boxed()) = Box::new(3u8);
@@ -149,7 +149,7 @@ impl<T> AutoBox<T> {
     /// # Examples
     ///
     /// ```
-    /// # use rust_runtime::AutoBox;
+    /// # use tedium::AutoBox;
     /// let mut x = AutoBox::new(5u8);
     /// assert_eq!(x.as_inner(), &5u8);
     /// *(x.as_mut_inner()) += 3;
@@ -166,7 +166,7 @@ impl<T> AutoBox<T> {
     /// # Examples
     ///
     /// ```
-    /// # use rust_runtime::autobox::AutoBox;
+    /// # use tedium::autobox::AutoBox;
     /// let five = AutoBox::new(5u8);
     /// assert_eq!(&5u8, five.as_inner());
     /// ```

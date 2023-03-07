@@ -1,6 +1,6 @@
-pub use rust_runtime::builder::{strict::StrictBuilder, Builder};
-pub use rust_runtime::conv::{Decode, Encode};
-pub use rust_runtime::parse::byteparser::ByteParser;
+pub use tedium::builder::{strict::StrictBuilder, Builder};
+pub use tedium::conv::{Decode, Encode};
+pub use tedium::parse::byteparser::ByteParser;
 
 fn check<T>(hex_val: (&str, T))
 where

@@ -11,7 +11,7 @@ pub fn fixedlength_derive(input: TokenStream) -> TokenStream {
 }
 
 fn impl_fixedlength(ast: &syn::DeriveInput) -> TokenStream {
-    let fixed_len_trait = quote! { rust_runtime::conv::len::FixedLength };
+    let fixed_len_trait = quote! { tedium::conv::len::FixedLength };
 
     let name = &ast.ident;
     let gen = match &ast.data {
@@ -73,8 +73,8 @@ pub fn estimable_derive(input: TokenStream) -> TokenStream {
 }
 
 fn impl_estimable(ast: &syn::DeriveInput) -> TokenStream {
-    let fixed_len_trait = quote! { rust_runtime::conv::len::FixedLength };
-    let estimable_trait = quote! { rust_runtime::conv::len::Estimable };
+    let fixed_len_trait = quote! { tedium::conv::len::FixedLength };
+    let estimable_trait = quote! { tedium::conv::len::Estimable };
     let some = quote! { ::std::option::Option::Some };
     let none = quote! { ::std::option::Option::None };
 

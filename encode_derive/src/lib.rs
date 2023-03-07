@@ -11,9 +11,9 @@ pub fn encode_derive(input: TokenStream) -> TokenStream {
 }
 
 fn impl_encode(ast: &syn::DeriveInput) -> TokenStream {
-    let encode_trait = quote! { rust_runtime::conv::Encode };
-    let target_trait = quote! { rust_runtime::conv::target::Target };
-    let resolve_zero_fn = quote! { rust_runtime::resolve_zero! };
+    let encode_trait = quote! { tedium::conv::Encode };
+    let target_trait = quote! { tedium::conv::target::Target };
+    let resolve_zero_fn = quote! { tedium::resolve_zero! };
 
     let name = &ast.ident;
     let gen = match &ast.data {

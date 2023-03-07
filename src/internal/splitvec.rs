@@ -71,7 +71,7 @@ mod spanbuffer {
         /// # Examples
         ///
         /// ```ignore
-        /// # use rust_runtime::internal::splitvec::SpanBuffer;
+        /// # use tedium::internal::splitvec::SpanBuffer;
         /// let x = SpanBuffer::new();
         /// assert!(x.is_empty());
         /// ```
@@ -91,7 +91,7 @@ mod spanbuffer {
         /// causes it to be initialized to 0.
         ///
         /// ```ignore
-        /// # use ::rust_runtime::internal::splitvec::SpanBuffer;
+        /// # use ::tedium::internal::splitvec::SpanBuffer;
         /// let mut s = SpanBuffer::new();
         /// let x : &mut usize = s.active_mut();
         /// assert_eq!(*x, 0usize);
@@ -230,7 +230,7 @@ mod spanbuffer {
         ///
         /// # Examples
         /// ```ignore
-        /// use ::rust_runtime::internal::splitvec::SpanBuffer;
+        /// use ::tedium::internal::splitvec::SpanBuffer;
         ///
         /// let mut p = SpanBuffer::new();
         /// assert!(p.is_empty());

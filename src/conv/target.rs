@@ -1,14 +1,12 @@
-/// Append-only serialization objects
-///
-/// `Target` is a custom trait providing methods for byte-level append operations
-/// to a mutably borrowed receiver object.
+/// Marker trait for byte-oriented buffers with incremental append operations
 ///
 /// In most ways, it is convenient to think of `Target` as an analogous trait to
-/// [`std::io::Write`]. The principal difference between the two is the fact that
-/// the `push_XXX` methods on `Target` are infallible and total by design; while
-/// they return a `usize` value representing the number of bytes written, this is
-/// used only for summary book-keeping on the caller side, rather than a feedback
-/// mechanism that may indicate failure or partial success, as is the case for `std::io::Write::write`.
+/// [`std::io::Write`]. The principal difference between the two is the fact
+/// that the `push_XXX` methods on `Target` are infallible and total (as opposed
+/// to partial) by design; while they return a `usize` value representing the
+/// number of bytes written, this is used only for summary book-keeping on the
+/// caller side, rather than a feedback mechanism that may indicate failure or
+/// partial success, as is the case for `std::io::Write::write`.
 ///
 /// All implementors of `Target` must define these methods as infallible and total.
 pub trait Target {
@@ -19,9 +17,9 @@ pub trait Target {
     /// For many implementors, this may simply be a no-op. For underlying structures
     /// with a notion of capacity, such as `Vec<u8>`, this would perform the appropriate
     /// function calls to amortize re-allocation costs by ensuring the capacity is increased
-    /// as necessary to accomodate the specified number of extra bytes.
+    /// as necessary to accommodate the specified number of extra bytes.
     ///
-    /// When writing implementations of this method, note that it may be called With
+    /// When writing implementations of this method, note that it may be called with
     /// only partial information as to how many bytes will be written, and additional
     /// writes, as well as other calls to `anticipate`, should be expected to follow.
     fn anticipate(&mut self, extra: usize);
@@ -82,14 +80,15 @@ pub trait Target {
     /// By definition, the effect of this function must not have influence on the actual contents of the buffer
     /// beyond internal division or segmentation, and so a default no-op implementation is provided, as few, if any,
     /// implementors will have need to override this.
-    #[inline]
+    #[inline(always)]
     fn resolve(&mut self) {}
 
     /// Perform the associated `Target::resolve` call on the argument expression and return `0usize`
     ///
-    /// While this standalone function could instead be a method with a default implementation in `Target` itself,
-    /// this approach guarantees that compiler logic is independent of implementation details of `Target`,
-    /// as well as ensuring that `0` is invariably returned.
+    /// # Note
+    ///
+    /// This method has a default implementation that should only be overridden with care.
+    /// In particular, no matter how it is implemented, the return value should always be `0`.
     #[inline]
     fn resolve_zero(&mut self) -> usize {
         self.resolve();

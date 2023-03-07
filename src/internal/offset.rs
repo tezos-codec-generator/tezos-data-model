@@ -253,7 +253,7 @@ impl Stack for FrameStack {
     /// # Examples
     ///
     /// ```ignore
-    /// # use ::rust_runtime::internal::{stack::Stack, offset::FrameStack};
+    /// # use ::tedium::internal::{stack::Stack, offset::FrameStack};
     /// let mut fs : FrameStack = FrameStack::new();
     /// assert_eq!(fs.peek(), None);
     /// ```

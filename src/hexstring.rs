@@ -72,7 +72,7 @@ pub(crate) mod util {
     /// # Examples
     ///
     /// ```ignore
-    /// # use rust_runtime::util::hex_of_bytes;
+    /// # use tedium::util::hex_of_bytes;
     /// assert_eq!(hex_of_bytes(vec![0xde,0xad,0xbe,0xef]), String::from("deadbeef"));
     /// ```
     #[must_use]
@@ -122,7 +122,7 @@ pub(crate) mod util {
     /// # Examples
     ///
     /// ```ignore
-    /// # use rust_runtime::heutil::bytes_of_hex;
+    /// # use tedium::heutil::bytes_of_hex;
     /// assert_eq!(Ok(vec![0xde,0xad,0xbe,0xef]), bytes_of_hex("deadbeef"));
     /// ```
     ///
@@ -275,7 +275,7 @@ impl HexString {
     /// # Examples
     ///
     /// ```
-    /// # use rust_runtime::{hex, hexstring::HexString};
+    /// # use tedium::{hex, hexstring::HexString};
     /// assert_eq!(hex!("deadbeef"), HexString::clone_from_bytes([0xde, 0xad, 0xbe, 0xef]));
     /// ```
     #[must_use]
@@ -304,7 +304,7 @@ impl HexString {
     /// # Examples
     ///
     /// ```
-    /// # use rust_runtime::{hex, hexstring::HexString};
+    /// # use tedium::{hex, hexstring::HexString};
     /// assert_eq!(hex!("deadbeef"), HexString::from_bytes(vec![0xde, 0xad, 0xbe, 0xef]));
     /// ```
     #[must_use]
@@ -325,7 +325,7 @@ impl HexString {
     /// # Examples
     ///
     /// ```
-    /// # use ::rust_runtime::{hex, HexString};
+    /// # use ::tedium::{hex, HexString};
     /// assert_eq!(HexString::new().to_hex(), "");
     /// assert_eq!(HexString::from(vec![0xde, 0xad, 0xbe, 0xef]).to_hex(),"deadbeef");
     /// ```
@@ -371,7 +371,7 @@ impl HexString {
     /// # Examples
     ///
     /// ```
-    /// # use rust_runtime::{hex, hexstring::HexString};
+    /// # use tedium::{hex, hexstring::HexString};
     /// let h : HexString = hex!("deadbeef");
     /// let mut i = h.iter();
     /// assert_eq!(i.next(), Some(&0xde));

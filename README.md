@@ -75,7 +75,7 @@ the Rust compiler is concerned.
 
 As of the time this README was last revised, all broad categories of Ocaml-based
 schemata (values of type `'a Data_encoding.Encoding.t`) are assumed to be
-covered by the logic of the compiler, in tandem with this runtime library.
+covered by the logic of the compiler, in tandem with this library.
 However, that does not mean that every schema will be supported by the
 `codec_generator` pipeline, that the produced module will be free of errors, or
 that an error-free codec module will be bug-free and behave 'correctly' (i.e.
@@ -93,7 +93,7 @@ Those methods, and the constructs they rely upon, are listed below:
   - `write_to<U: Target>(&self, buf: &mut U) -> usize` :
     Appends the full sequence of bytes of the codec-compatible serialization of
     `self`, to the mutably borrowed destination object, of a generic type bound
-    by the trait [`Target`](#target), also defined in the runtime. The returned
+    by the trait [`Target`](#target), also defined in this library. The returned
     value is the total number of bytes that were written by the call. This is
     the lowest-level, and the only required (non-default) method.
   - `write_to_vec(&self, buf: &mut Vec<u8>)` :

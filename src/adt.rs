@@ -1,5 +1,5 @@
 /// Generates a type-definition and associated implementations
-/// of the runtime traits [`Encode`](crate::conv::Encode), [`Decode`](crate::conv::Decode), and [`FixedLength`](crate::conv::len::FixedLength)
+/// of the core traits [`Encode`](crate::conv::Encode), [`Decode`](crate::conv::Decode), and [`FixedLength`](crate::conv::len::FixedLength)
 /// for a C-Style enum (i.e. type-level association between type-scoped identifiers
 /// and unique unsigned integral constants, without any associated data).
 ///
@@ -25,7 +25,7 @@
 /// # Examples
 ///
 /// ```
-/// # use rust_runtime::{Decode, cstyle, hex};
+/// # use tedium::{Decode, cstyle, hex};
 ///
 /// cstyle!(SmallPrime, u8, { Two = 2, Three = 3, Five = 5, Seven = 7 });
 /// assert_eq!(SmallPrime::Five as u8, 5u8);
@@ -35,7 +35,7 @@
 /// #
 ///
 /// ```
-/// # use ::rust_runtime::cstyle;
+/// # use ::tedium::cstyle;
 /// cstyle!(NarrowUnit, u8, { Unit = 0 });
 /// cstyle!(WideUnit, u32, { Unit = 0 });
 /// assert_eq!(std::mem::size_of::<NarrowUnit>(), 1);
@@ -238,15 +238,15 @@ macro_rules! cstyle {
 /// # Examples
 ///
 /// ```
-/// # #[macro_use] extern crate rust_runtime;
-/// # use ::rust_runtime::conv::Decode;
+/// # #[macro_use] extern crate tedium;
+/// # use ::tedium::conv::Decode;
 /// data!(SmallPrimePower, u8, payload, { 2 => TwoPower(pub u8), 3 => ThreePower(pub u8), 5 => FivePower(pub u8) });
 /// assert_eq!(SmallPrimePower::decode(hex!("0501")), SmallPrimePower::FivePower(payload::FivePower(1)));
 /// ```
 ///
 /// ```
-/// # #[macro_use] extern crate rust_runtime;
-/// # use rust_runtime::conv::EncodeLength;
+/// # #[macro_use] extern crate tedium;
+/// # use tedium::conv::EncodeLength;
 /// data!(WideUnit, u16, payload, { 0 => Unit, });
 /// assert_eq!(EncodeLength::enc_len(&WideUnit::Unit(payload::Unit)), EncodeLength::enc_len(&0u16));
 /// assert_eq!(EncodeLength::enc_len(&payload::Unit), EncodeLength::enc_len(&()));
