@@ -395,7 +395,7 @@ impl Decode for String {
     fn parse<P: Parser>(p: &mut P) -> ParseResult<Self> {
         let buf: Vec<u8> = p.take_dynamic(p.remainder())?;
 
-        Ok(String::from_utf8(buf)?)
+        Ok(String::from_utf8_lossy(&buf).into_owned())
     }
 }
 
