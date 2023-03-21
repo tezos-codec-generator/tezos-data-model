@@ -34,7 +34,7 @@ impl<const N: usize> FixedBytes<N> {
     /// # Examples
     ///
     /// ```
-    /// # use rust_runtime::fixed::FixedBytes;
+    /// # use tedium::fixed::FixedBytes;
     /// assert_eq!(FixedBytes::from_array([1, 2, 3u8]).as_slice(), &[1, 2, 3u8]);
     /// ```
     #[inline(always)]
@@ -48,7 +48,7 @@ impl<const N: usize> FixedBytes<N> {
     /// # Examples
     ///
     /// ```
-    /// # use rust_runtime::fixed::FixedBytes;
+    /// # use tedium
     /// let arr : [u8; 4] = [0xde, 0xad, 0xbe, 0xef];
     /// assert_eq!(FixedBytes::from_array(&arr).bytes(), arr);
     /// ```
@@ -63,7 +63,7 @@ impl<const N: usize> FixedBytes<N> {
     /// # Examples
     ///
     /// ```
-    /// # use rust_runtime::fixed::FixedBytes;
+    /// # use tediumedBytes;
     /// let arr : [u8; 4] = [0xde, 0xad, 0xbe, 0xef];
     /// let mut data = FixedBytes::from_array(&arr);
     /// data.bytes_mut()[0] = 0xec;
@@ -81,7 +81,7 @@ impl<const N: usize> FixedBytes<N> {
     /// # Examples
     ///
     /// ```
-    /// # use rust_runtime::fixed::FixedBytes;
+    /// # use tedium::fixed::FixedBytes;
     /// let bytes : &'static [u8; 11] = b"hello world";
     /// assert_eq!(FixedBytes::from_slice(bytes).as_slice(), bytes);
     /// ```
@@ -117,7 +117,7 @@ impl<const N: usize> FixedBytes<N> {
     /// # Examples
     ///
     /// ```
-    /// # use rust_runtime::fixed::FixedBytes;
+    /// # use tedium::fixed::FixedBytes;
     /// const LEN : usize = 42;
     /// assert_eq!(FixedBytes::from_array_ref(&[0u8; LEN]).len(), LEN);
     /// ```
@@ -132,7 +132,7 @@ impl<const N: usize> FixedBytes<N> {
     /// # Examples
     ///
     /// ```
-    /// # use rust_runtime::fixed::FixedBytes;
+    /// # use tedium::fixed::FixedBytes;
     /// let data : FixedBytes<4> = FixedBytes::from_slice(&[0xde, 0xad, 0xbe, 0xef]);
     /// assert_eq!(data.to_array(), [0xde, 0xad, 0xbe, 0xef]);
     /// ```
@@ -298,7 +298,7 @@ impl<const N: usize> FixedString<N> {
     /// # Example
     ///
     /// ```
-    /// # use ::rust_runtime::fixed::FixedString;
+    /// # use ::tedium::fixed::FixedString;
     ///
     /// const MOGAMI_STR : &'static str = "さみだれをあつめてはやしもがみがわ";
     /// const MOGAMI_ARR : &[u8; 51] = b"\xE3\x81\x95\xE3\x81\xBF\xE3\x81\xA0\xE3\x82\x8C\xE3\x82\x92\xE3\x81\x82\xE3\x81\xA4\xE3\x82\x81\xE3\x81\xA6\xE3\x81\xAF\xE3\x82\x84\xE3\x81\x97\xE3\x82\x82\xE3\x81\x8C\xE3\x81\xBF\xE3\x81\x8C\xE3\x82\x8F";
@@ -321,7 +321,7 @@ impl<const N: usize> FixedString<N> {
     /// # Examples
     ///
     /// ```
-    /// # use rust_runtime::fixed::FixedString;
+    /// # use tedium::fixed::FixedString;
     /// let valid : FixedString::<4> = FixedString::from_str("🦀");
     /// assert_eq!(valid.is_valid_utf8());
     /// let invalid : FixedString::<1> = FixedString::from_array_unchecked([0x00]);
@@ -343,7 +343,7 @@ impl<const N: usize> FixedString<N> {
     /// # Examples
     ///
     /// ```
-    /// # use ::rust_runtime::fixed::FixedString;
+    /// # use ::tedium::fixed::FixedString;
     /// let text : &'static str = "hello world";
     /// assert_eq!(unsafe { FixedString::from_str(text).as_str_unchecked() }, str);
     /// ```
@@ -358,7 +358,7 @@ impl<const N: usize> FixedString<N> {
     /// # Examples
     ///
     /// ```
-    /// # use ::rust_runtime::fixed::FixedString;
+    /// # use ::tedium::fixed::FixedString;
     /// let arr : [u8; 4] = [0x00, 0x61, 0xec, 0xad]
     /// let data : FixedString<4> = FixedString::from_array_unchecked(arr);
     /// assert_eq!(data.as_string_lossy(), Cow::Owned(String::from("\x00a�"))
