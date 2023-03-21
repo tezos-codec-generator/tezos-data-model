@@ -165,7 +165,22 @@ pub mod z {
     use ::num_integer::Integer;
 
     #[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Hash, Default)]
+    #[repr(transparent)]
     pub struct Z(pub BigInt);
+
+    impl Z {
+        pub fn into_inner(self) -> BigInt {
+            self.0
+        }
+
+        pub const fn as_inner(&self) -> &BigInt {
+            &self.0
+        }
+
+        pub const fn new(int: BigInt) -> Self {
+            Self(int)
+        }
+    }
 
     impl std::fmt::Debug for Z {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
