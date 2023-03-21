@@ -178,7 +178,7 @@ where
     /// the line.
     #[must_use]
     #[inline]
-    pub unsafe fn from_underlying_unchecked(x: I) -> Self {
+    pub const unsafe fn from_underlying_unchecked(x: I) -> Self {
         Self(x)
     }
 
@@ -297,7 +297,7 @@ where
     /// is the only one that is guaranteed not to panic or produce undefined
     /// behavior when applied to such out-of-bounds values.
     #[inline]
-    pub unsafe fn to_underlying_unchecked(self) -> I {
+    pub const unsafe fn to_underlying_unchecked(self) -> I {
         self.0
     }
 

@@ -35,7 +35,22 @@ pub mod n {
     use ::num_integer::Integer;
 
     #[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Hash, Default)]
+    #[repr(transparent)]
     pub struct N(pub BigUint);
+
+    impl N {
+        pub fn into_inner(self) -> BigUint {
+            self.0
+        }
+
+        pub const fn as_inner(&self) -> &BigUint {
+            &self.0
+        }
+
+        pub const fn new(nat: BigUint) -> Self {
+            Self(nat)
+        }
+    }
 
     impl std::fmt::Debug for N {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -52,6 +67,12 @@ pub mod n {
     impl From<N> for BigUint {
         fn from(val: N) -> Self {
             val.0
+        }
+    }
+
+    impl From<BigUint> for N {
+        fn from(value: BigUint) -> Self {
+            Self(value)
         }
     }
 
