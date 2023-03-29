@@ -264,7 +264,7 @@ pub trait Decode {
     ///
     /// # Errors
     ///
-    /// In most cases, the errors returned by this method will be propogated from
+    /// In most cases, the errors returned by this method will be propagated from
     /// calls made to [`Parser`] methods in the implementation logic.
     ///
     /// In rare cases, it may be necessary to return newly minted `ParseError`

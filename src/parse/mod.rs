@@ -295,6 +295,14 @@ pub trait Parser {
     /// Currently, `TagValidator<U>` is implemented for arrays, slices, and vectors containing
     /// all `U` values that are legal as discriminants for the type `T`
     ///
+    /// # Note
+    ///
+    /// The type argument `T` is used for reporting purposes, to signify the type whose discriminant
+    /// we are parsing (as opposed to `U`, the unsigned integral type the discriminant corresponds to).
+    /// It it not restricted by any trait bounds, and while providing a dummy or incorrect concrete type
+    /// for `T` will not cause this method to fail in most cases, it may lead to misleading error messages
+    /// if the parsed tag-value is deemed invalid.
+    ///
     /// # Invariants
     ///
     /// All implementations must uphold the contract that the only possible return values
@@ -381,6 +389,65 @@ pub trait Parser {
     /// the state of the `Parser` is somehow malformed, or certain methods might
     /// have implementation bugs.
     fn cleanup(self) -> cleanup::CleanupResult;
+}
+
+pub trait ParserExt: Parser {
+    /// Skips over `nbytes` bytes, consuming them without preservation, stopping early if a
+    /// context-window would be violated otherwise.
+    ///
+    /// Returns the actual number of bytes skipped, which may be smaller than `nbytes`
+    /// if the end of a context-window would have been overrun.
+    fn skip(&mut self, nbytes: usize) -> ParseResult<usize>;
+
+    /// Skips over exactly `nbytes` bytes, failing entirely if a context window was overrun in
+    /// the process.
+    fn skip_exactly(&mut self, nbytes: usize) -> ParseResult<()>;
+
+    /// Parses a dynamic length-prefix and automatically skips over its payload, returning the number
+    /// of payload bytes skipped (not counting the leading bytes constituting the length-prefix itself).
+    fn skip_dynamic<L: LenPref>(&mut self) -> ParseResult<usize> {
+        let lp = self.process_prefix::<L>()?;
+        self.skip_exactly(lp)?;
+        self.enforce_target()?;
+        Ok(lp)
+    }
+
+    /// Parses a dynamic length-prefix and creates a new context window of the appropriate length to consume
+    /// its payload only.
+    ///
+    /// Returns the value of the length-prefix as a `usize`.
+    fn process_prefix<L: LenPref>(&mut self) -> ParseResult<usize> {
+        let len : usize = L::parse_as_usize(self)?;
+        self.set_fit(len)?;
+        Ok(len)
+    }
+
+    /// Utility method for scanning through serialized hashmaps (or association lists) whose key and values are
+    /// of constant length known at compile time, and returns the associated value of the provided key, if one
+    /// exists within the current view-window.
+    ///
+    /// Takes an argument for the search-key, as a borrowed byte-slice, as well as a disposable closure to post-convert
+    /// the raw bytes of the associated value once it has been located in the buffer.
+    ///
+    /// Note that often such association lists may be dynamically prefixed, and so it may be necessary to preemptively
+    /// consume the leading bytes and set a context window based on the imputed array-length, before calling this method.
+    fn fast_kv_search<K, V, F, const M: usize, const N: usize>(
+        &mut self,
+        k: &[u8; M],
+        f: F
+    ) -> ParseResult<Option<V>> where F: FnOnce([u8; N]) -> V {
+        while self.remainder() > 0 {
+            let _k = self.consume_arr::<M>()?;
+            if *k == _k {
+                let _v = self.consume_arr::<N>()?;
+                return Ok(Some(f(_v)));
+            } else {
+                let _ = self.skip_exactly(N)?;
+                continue
+            }
+        }
+        Ok(None)
+    }
 }
 
 pub mod buffer;
@@ -620,7 +687,7 @@ pub mod byteparser {
     use super::buffer::VecBuffer;
     use super::cleanup::{CleanupResult, InvariantError, LeftoverState};
     use super::error::{ParseError, ParseResult};
-    use super::Parser;
+    use super::{Parser, ParserExt};
 
     #[derive(Debug)]
     pub struct ByteParser {
@@ -741,6 +808,33 @@ pub mod byteparser {
         }
     }
 
+    impl ParserExt for ByteParser {
+        fn skip(&mut self, nbytes: usize) -> ParseResult<usize> {
+            let rem = self.offset.rem();
+            let delta = usize::min(rem, nbytes);
+            if let (_, true) = self.offset.advance(delta) {
+                Ok(delta)
+            } else {
+                unreachable!("Overran despite thresholding: {} > {} ??", delta, rem)
+            }
+        }
+
+        fn skip_exactly(&mut self, nbytes: usize) -> ParseResult<()> {
+            let (ix, adv) = self.offset.advance(nbytes);
+            if adv {
+                Ok(())
+            } else {
+                Err(ParseError::Window(
+                    super::error::WindowError::ConsumeWouldExceedLimit {
+                        offset: ix,
+                        requested: nbytes,
+                        limit: self.view_len(),
+                    },
+                ))
+            }
+        }
+    }
+
     super::impl_iterator_parser!(ByteParser);
 }
 
@@ -751,7 +845,7 @@ pub mod memoparser {
     use super::buffer::VecBuffer;
     use super::cleanup::{CleanupResult, InvariantError, LeftoverState};
     use super::error::{ParseError, ParseResult};
-    use super::Parser;
+    use super::{Parser, ParserExt};
 
     #[derive(Debug)]
     pub struct MemoParser {
@@ -901,6 +995,38 @@ pub mod memoparser {
         }
     }
 
+    impl ParserExt for MemoParser {
+        fn skip(&mut self, nbytes: usize) -> ParseResult<usize> {
+            let rem = self.offset.rem();
+            let delta = usize::min(rem, nbytes);
+            if let (_, true) = self.offset.advance(delta) {
+                self.munches.push(delta);
+                Ok(delta)
+            } else {
+                eprint_munches!(self);
+                unreachable!("Overran despite thresholding: {} > {} ??", delta, rem)
+            }
+        }
+
+        fn skip_exactly(&mut self, nbytes: usize) -> ParseResult<()> {
+            let (ix, adv) = self.offset.advance(nbytes);
+            if adv {
+                Ok(())
+            } else {
+                let offset = ix;
+                eprint_munches!(self);
+                Err(ParseError::Window(
+                    super::error::WindowError::ConsumeWouldExceedLimit {
+                        offset,
+                        requested: nbytes,
+                        limit: self.view_len(),
+                    },
+                ))
+            }
+        }
+    }
+
+
     super::impl_iterator_parser!(MemoParser);
 }
 
@@ -908,7 +1034,7 @@ pub mod sliceparser {
     use super::buffer::SliceBuffer;
     use super::cleanup::{CleanupResult, InvariantError, LeftoverState};
     use super::error::{ParseError, ParseResult, WindowError};
-    use super::Parser;
+    use super::{Parser, ParserExt};
     use crate::internal::view::ViewStack;
     use crate::internal::Stack;
 
@@ -1077,12 +1203,55 @@ pub mod sliceparser {
         }
     }
 
+    impl ParserExt for SliceParser<'_> {
+        fn skip(&mut self, nbytes: usize) -> ParseResult<usize> {
+            match self.view_stack.peek_mut() {
+                None => Ok(0),
+                Some(frame) => {
+                    let limit = frame.len();
+                    let delta = usize::min(limit, nbytes);
+                    unsafe {
+                        let (_, temp) = frame.split_unchecked(delta);
+                        *frame = temp;
+                        Ok(delta)
+                    }
+                }
+            }
+        }
+
+        fn skip_exactly(&mut self, nbytes: usize) -> ParseResult<()> {
+            match self.view_stack.peek_mut() {
+                None => Err(ParseError::Window(WindowError::ConsumeWouldExceedLimit {
+                    offset: 0,
+                    requested: nbytes,
+                    limit: 0,
+                })),
+                Some(frame) => {
+                    let limit = frame.len();
+                    if limit >= nbytes {
+                        unsafe {
+                            let (_, temp) = frame.split_unchecked(nbytes);
+                            *frame = temp;
+                            Ok(())
+                        }
+                    } else {
+                        Err(ParseError::Window(WindowError::ConsumeWouldExceedLimit {
+                            limit,
+                            requested: nbytes,
+                            offset: 0,
+                        }))
+                    }
+                }
+            }
+        }
+    }
+
     super::impl_iterator_parser!(SliceParser<'_>);
 }
 
 use byteparser::ByteParser;
 
-use crate::conv::error::DecodeError;
+use crate::{conv::error::DecodeError, dynamic::LenPref};
 
 use self::error::TokenError;
 
