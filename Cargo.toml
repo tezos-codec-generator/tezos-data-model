@@ -22,6 +22,7 @@ bench = false
 check_complete_parse = []
 arrayvec_fixseq = ["arrayvec"]
 arrayvec_limseq = ["arrayvec"]
+serde_impls = ["serde"]
 enc_len_estimable_override = []
 relaxed_padding_invariant = []
 invalid_range_checking = []
@@ -40,6 +41,7 @@ num-integer = "0.1"
 encode_derive = { path = "encode_derive", version = "0.1.0" }
 decode_derive = { path = "decode_derive", version = "0.1.0" }
 estimable_derive = { path = "estimable_derive", version = "0.1.0" }
+serde = { version = "1.0", optional = true }
 arrayvec = { version = "0.7.2", optional = true }
 smallvec = { version = "1.8.0", optional = true, features = [
     "const_new",

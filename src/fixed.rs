@@ -25,6 +25,7 @@ use std::str::FromStr;
 /// construction and reinterpretation of `FixedBytes` values, with
 /// comparably little overhead versus using arrays directly.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[cfg_attr(feature = "serde_impls", derive(Serialize))]
 #[repr(transparent)]
 pub struct FixedBytes<const N: usize>([u8; N]);
 
