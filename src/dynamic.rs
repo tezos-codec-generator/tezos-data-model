@@ -265,6 +265,11 @@ where
     Self:
         Into<usize> + TryFrom<usize> + Copy + EncodeLength + Decode + FixedLength + private::Sealed,
 {
+    fn parse_as_usize<P: Parser + ?Sized>(p: &mut P) -> ParseResult<usize> {
+        let raw_bytes = p.consume(Self::LEN)?;
+        unsafe { Ok(Self::marshall_usize(raw_bytes)) }
+    }
+
     /// Returns a `uX`-style name for LenPref, as is common for writing
     /// explicitly-typed integer literals
     fn suffix() -> &'static str {
@@ -275,13 +280,35 @@ where
     /// by a particular `LenPref` type, as a `usize`
     fn max_len() -> usize;
 }
-
 mod private {
-    pub trait Sealed {}
+    pub trait Sealed {
+        unsafe fn marshall_usize(bytes: &[u8]) -> usize;
+    }
 
-    impl Sealed for u8 {}
-    impl Sealed for u16 {}
-    impl Sealed for crate::int::u30 {}
+    impl Sealed for u8 {
+        unsafe fn marshall_usize(bytes: &[u8]) -> usize {
+            let bytes = <[u8; 1]>::try_from(bytes).unwrap_unchecked();
+            let raw = Self::from_be_bytes(bytes);
+            raw as usize
+        }
+    }
+
+    impl Sealed for u16 {
+        unsafe fn marshall_usize(bytes: &[u8]) -> usize {
+            let bytes = <[u8; 2]>::try_from(bytes).unwrap_unchecked();
+            let raw = Self::from_be_bytes(bytes);
+            raw as usize
+        }
+    }
+
+    impl Sealed for crate::int::u30 {
+        unsafe fn marshall_usize(bytes: &[u8]) -> usize {
+            let bytes = <[u8; 4]>::try_from(bytes).unwrap_unchecked();
+            let raw = i32::from_be_bytes(bytes);
+            let _ = crate::int::u30::try_from_i32(raw).expect("Inherent conversion from i32->u30 failed");
+            raw as usize
+        }
+    }
 }
 
 impl LenPref for u8 {
