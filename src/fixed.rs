@@ -27,9 +27,16 @@ use serde::Serialize;
 /// construction and reinterpretation of `FixedBytes` values, with
 /// comparably little overhead versus using arrays directly.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-#[cfg_attr(feature = "serde_impls", derive(Serialize))]
 #[repr(transparent)]
 pub struct FixedBytes<const N: usize>([u8; N]);
+
+
+#[cfg(feature = "serde_impls")]
+impl<const N: usize> Serialize for FixedBytes<N> where [u8; N]: Serialize {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error> where S: serde::Serializer {
+        self.0.serialize(serializer)
+    }
+}
 
 impl<const N: usize> FixedBytes<N> {
     /// Constructs a [`FixedBytes<N>`] from a byte-array of length `N`.
