@@ -32,11 +32,13 @@ pub struct FixedBytes<const N: usize>([u8; N]);
 
 
 #[cfg(feature = "serde_impls")]
-impl<const N: usize> Serialize for FixedBytes<N> where [u8; N]: Serialize {
+impl<const N: usize> Serialize for FixedBytes<N> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error> where S: serde::Serializer {
-        self.0.serialize(serializer)
+        serializer.serialize_bytes(&self.0)
     }
 }
+
+
 
 impl<const N: usize> FixedBytes<N> {
     /// Constructs a [`FixedBytes<N>`] from a byte-array of length `N`.
