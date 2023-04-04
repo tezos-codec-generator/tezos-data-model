@@ -12,6 +12,8 @@ use crate::parse::{ ParseResult, Parser };
 use std::borrow::Borrow;
 use std::convert::{ TryInto, TryFrom };
 use std::str::FromStr;
+#[cfg(feature = "serde_impls")]
+use serde::Serialize;
 
 /// Simple type for holding fixed-length binary sequences.
 ///
