@@ -37,7 +37,7 @@
 pub mod error;
 
 pub use error::ParseResult;
-use error::{ InternalError, ParseError, TagError };
+use error::{InternalError, ParseError, TagError};
 use std::convert::TryInto;
 
 /// # Parser
@@ -308,13 +308,20 @@ pub trait Parser {
     /// All implementations must uphold the contract that the only possible return values
     /// are `Err(_)`, and `Ok(val)` for some `val` in `valid`.
     fn take_tagword<T, U, V>(&mut self, v: V) -> ParseResult<U>
-        where U: error::TagType + crate::conv::Decode, Self: Sized, V: error::TagValidator<U>
+    where
+        U: error::TagType + crate::conv::Decode,
+        Self: Sized,
+        V: error::TagValidator<U>,
     {
         let actual: U = crate::conv::Decode::parse(self)?;
         if v.is_valid(actual) {
             Ok(actual)
         } else if v.has_valid() {
-            Err(U::promote(TagError::new(actual, std::any::type_name::<T>(), Some(v.into_valid()))))
+            Err(U::promote(TagError::new(
+                actual,
+                std::any::type_name::<T>(),
+                Some(v.into_valid()),
+            )))
         } else {
             Err(ParseError::Internal(InternalError::NoValidTags))
         }
@@ -349,7 +356,8 @@ pub trait Parser {
     /// Zarith types [`N`](crate::zarith::n::N) and [`Z`](crate::zarith::z::Z).
     ///
     fn take_self_terminating<F>(&mut self, is_terminal: F) -> ParseResult<Vec<u8>>
-        where F: Fn(u8) -> bool
+    where
+        F: Fn(u8) -> bool,
     {
         let mut ret: Vec<u8> = Vec::with_capacity(self.remainder());
         loop {
@@ -428,9 +436,10 @@ pub trait ParserExt: Parser {
     fn fast_kv_search<K, V, F, const M: usize, const N: usize>(
         &mut self,
         k: &[u8; M],
-        f: F
+        f: F,
     ) -> ParseResult<Option<V>>
-        where F: FnOnce([u8; N]) -> V
+    where
+        F: FnOnce([u8; N]) -> V,
     {
         while self.remainder() > 0 {
             let _k = self.consume_arr::<M>()?;
@@ -564,9 +573,8 @@ pub mod cleanup {
                     *self = Self::Windowed(SplitVec::new());
                 }
                 &mut LeftoverState::Windowless(_) => {
-                    *self = Self::Windowed(
-                        SplitVec::from_vec(unsafe { self.take_vec_unchecked() })
-                    );
+                    *self =
+                        Self::Windowed(SplitVec::from_vec(unsafe { self.take_vec_unchecked() }));
                 }
                 LeftoverState::Windowed(_) => {}
             }
@@ -622,7 +630,11 @@ pub mod cleanup {
                     write!(f, "unexpected WindowError variant encountered: {:?}", err)
                 }
                 Self::ErrorKindUnexpected(err) => {
-                    write!(f, "error of unexpected kind (non-WindowError) encountered: {:?}", err)
+                    write!(
+                        f,
+                        "error of unexpected kind (non-WindowError) encountered: {:?}",
+                        err
+                    )
                 }
                 Self::ErrorUnexpected(err) => {
                     write!(f, "unexpected error encountered: {:?}", err)
@@ -640,7 +652,9 @@ pub mod cleanup {
                 InvariantError::ErrorKindUnexpected(e) => {
                     write!(f, "unexpected non-window error: {}", e)
                 }
-                InvariantError::ErrorUnexpected(e) => { write!(f, "unexpected error: {}", e) }
+                InvariantError::ErrorUnexpected(e) => {
+                    write!(f, "unexpected error: {}", e)
+                }
             }
         }
     }
@@ -673,12 +687,12 @@ macro_rules! impl_iterator_parser {
 pub(self) use impl_iterator_parser;
 
 pub mod byteparser {
-    use crate::internal::offset::{ ContextOffset, IndexTracker };
+    use crate::internal::offset::{ContextOffset, IndexTracker};
 
     use super::buffer::VecBuffer;
-    use super::cleanup::{ CleanupResult, InvariantError, LeftoverState };
-    use super::error::{ ParseError, ParseResult };
-    use super::{ Parser, ParserExt };
+    use super::cleanup::{CleanupResult, InvariantError, LeftoverState};
+    use super::error::{ParseError, ParseResult};
+    use super::{Parser, ParserExt};
 
     #[derive(Debug)]
     pub struct ByteParser {
@@ -717,13 +731,13 @@ pub mod byteparser {
             if adv {
                 Ok(self.buffer.get_byte(ix))
             } else {
-                Err(
-                    ParseError::Window(super::error::WindowError::ConsumeWouldExceedLimit {
+                Err(ParseError::Window(
+                    super::error::WindowError::ConsumeWouldExceedLimit {
                         offset: ix,
                         requested: 1,
                         limit: self.view_len(),
-                    })
-                )
+                    },
+                ))
             }
         }
 
@@ -732,13 +746,13 @@ pub mod byteparser {
             if adv {
                 Ok(unsafe { self.buffer.get_slice_unchecked(ix, nbytes) })
             } else {
-                Err(
-                    ParseError::Window(super::error::WindowError::ConsumeWouldExceedLimit {
+                Err(ParseError::Window(
+                    super::error::WindowError::ConsumeWouldExceedLimit {
                         offset: ix,
                         requested: nbytes,
                         limit: self.view_len(),
-                    })
-                )
+                    },
+                ))
             }
         }
 
@@ -819,13 +833,13 @@ pub mod byteparser {
             if adv {
                 Ok(())
             } else {
-                Err(
-                    ParseError::Window(super::error::WindowError::ConsumeWouldExceedLimit {
+                Err(ParseError::Window(
+                    super::error::WindowError::ConsumeWouldExceedLimit {
                         offset: ix,
                         requested: nbytes,
                         limit: self.view_len(),
-                    })
-                )
+                    },
+                ))
             }
         }
     }
@@ -834,13 +848,13 @@ pub mod byteparser {
 }
 
 pub mod memoparser {
-    use crate::internal::offset::{ ContextOffset, IndexTracker };
+    use crate::internal::offset::{ContextOffset, IndexTracker};
     use crate::internal::splitvec::SplitVec;
 
     use super::buffer::VecBuffer;
-    use super::cleanup::{ CleanupResult, InvariantError, LeftoverState };
-    use super::error::{ ParseError, ParseResult };
-    use super::{ Parser, ParserExt };
+    use super::cleanup::{CleanupResult, InvariantError, LeftoverState};
+    use super::error::{ParseError, ParseResult};
+    use super::{Parser, ParserExt};
 
     #[derive(Debug)]
     pub struct MemoParser {
@@ -850,8 +864,7 @@ pub mod memoparser {
     }
 
     macro_rules! eprint_munches {
-        ($self:expr) => {
-        {
+        ($self:expr) => {{
             let mut splits = SplitVec::new();
             let mut ix: usize = 0;
             for &len in $self.munches.iter() {
@@ -861,8 +874,7 @@ pub mod memoparser {
                 ix += len;
             }
             eprintln!("{}", splits);
-        }
-        };
+        }};
     }
 
     impl MemoParser {
@@ -907,13 +919,13 @@ pub mod memoparser {
             } else {
                 let offset = ix;
                 eprint_munches!(self);
-                Err(
-                    ParseError::Window(super::error::WindowError::ConsumeWouldExceedLimit {
+                Err(ParseError::Window(
+                    super::error::WindowError::ConsumeWouldExceedLimit {
                         offset,
                         requested: 1,
                         limit: self.view_len(),
-                    })
-                )
+                    },
+                ))
             }
         }
 
@@ -925,13 +937,13 @@ pub mod memoparser {
             } else {
                 let offset = ix;
                 eprint_munches!(self);
-                Err(
-                    ParseError::Window(super::error::WindowError::ConsumeWouldExceedLimit {
+                Err(ParseError::Window(
+                    super::error::WindowError::ConsumeWouldExceedLimit {
                         offset,
                         requested: nbytes,
                         limit: self.view_len(),
-                    })
-                )
+                    },
+                ))
             }
         }
 
@@ -1016,13 +1028,13 @@ pub mod memoparser {
             } else {
                 let offset = ix;
                 eprint_munches!(self);
-                Err(
-                    ParseError::Window(super::error::WindowError::ConsumeWouldExceedLimit {
+                Err(ParseError::Window(
+                    super::error::WindowError::ConsumeWouldExceedLimit {
                         offset,
                         requested: nbytes,
                         limit: self.view_len(),
-                    })
-                )
+                    },
+                ))
             }
         }
     }
@@ -1032,9 +1044,9 @@ pub mod memoparser {
 
 pub mod sliceparser {
     use super::buffer::SliceBuffer;
-    use super::cleanup::{ CleanupResult, InvariantError, LeftoverState };
-    use super::error::{ ParseError, ParseResult, WindowError };
-    use super::{ Parser, ParserExt };
+    use super::cleanup::{CleanupResult, InvariantError, LeftoverState};
+    use super::error::{ParseError, ParseResult, WindowError};
+    use super::{Parser, ParserExt};
     use crate::internal::view::ViewStack;
     use crate::internal::Stack;
 
@@ -1079,26 +1091,25 @@ pub mod sliceparser {
 
         fn consume_byte(&mut self) -> ParseResult<u8> {
             match Stack::peek_mut(&mut self.view_stack) {
-                None =>
-                    Err(
-                        ParseError::Window(super::error::WindowError::ConsumeWouldExceedLimit {
-                            offset: 0,
-                            requested: 1,
-                            limit: 0,
-                        })
-                    ),
+                None => Err(ParseError::Window(
+                    super::error::WindowError::ConsumeWouldExceedLimit {
+                        offset: 0,
+                        requested: 1,
+                        limit: 0,
+                    },
+                )),
                 Some(frame) => {
                     if let Some((ret, temp)) = frame.cut_first() {
                         *frame = temp;
                         Ok(ret)
                     } else {
-                        Err(
-                            ParseError::Window(super::error::WindowError::ConsumeWouldExceedLimit {
+                        Err(ParseError::Window(
+                            super::error::WindowError::ConsumeWouldExceedLimit {
                                 offset: 0,
                                 requested: 1,
                                 limit: 0,
-                            })
-                        )
+                            },
+                        ))
                     }
                 }
             }
@@ -1106,14 +1117,11 @@ pub mod sliceparser {
 
         fn consume(&mut self, nbytes: usize) -> ParseResult<&[u8]> {
             match self.view_stack.peek_mut() {
-                None =>
-                    Err(
-                        ParseError::Window(WindowError::ConsumeWouldExceedLimit {
-                            offset: 0,
-                            requested: nbytes,
-                            limit: 0,
-                        })
-                    ),
+                None => Err(ParseError::Window(WindowError::ConsumeWouldExceedLimit {
+                    offset: 0,
+                    requested: nbytes,
+                    limit: 0,
+                })),
                 Some(frame) => {
                     let limit = frame.len();
                     if limit >= nbytes {
@@ -1123,13 +1131,11 @@ pub mod sliceparser {
                             Ok(ret)
                         }
                     } else {
-                        Err(
-                            ParseError::Window(WindowError::ConsumeWouldExceedLimit {
-                                limit,
-                                requested: nbytes,
-                                offset: 0,
-                            })
-                        )
+                        Err(ParseError::Window(WindowError::ConsumeWouldExceedLimit {
+                            limit,
+                            requested: nbytes,
+                            offset: 0,
+                        }))
                     }
                 }
             }
@@ -1138,13 +1144,10 @@ pub mod sliceparser {
         fn set_fit(&mut self, n: usize) -> std::result::Result<(), ParseError> {
             match self.view_stack.peek_mut() {
                 None if n == 0 => Ok(()),
-                None =>
-                    Err(
-                        ParseError::Window(WindowError::OpenWouldExceedBuffer {
-                            bytes_left: 0,
-                            request: n,
-                        })
-                    ),
+                None => Err(ParseError::Window(WindowError::OpenWouldExceedBuffer {
+                    bytes_left: 0,
+                    request: n,
+                })),
                 Some(frame) => {
                     if frame.len() >= n {
                         unsafe {
@@ -1154,12 +1157,10 @@ pub mod sliceparser {
                             Ok(())
                         }
                     } else {
-                        Err(
-                            ParseError::Window(WindowError::OpenWouldExceedWindow {
-                                limit: frame.len(),
-                                request: n,
-                            })
-                        )
+                        Err(ParseError::Window(WindowError::OpenWouldExceedWindow {
+                            limit: frame.len(),
+                            request: n,
+                        }))
                     }
                 }
             }
@@ -1167,22 +1168,22 @@ pub mod sliceparser {
 
         #[inline]
         fn test_target(&mut self) -> ParseResult<bool> {
-            if let Some(t) = self.view_stack.peek() { Ok(t.is_empty()) } else { Ok(false) }
+            if let Some(t) = self.view_stack.peek() {
+                Ok(t.is_empty())
+            } else {
+                Ok(false)
+            }
         }
 
         fn enforce_target(&mut self) -> ParseResult<()> {
             match self.view_stack.pop() {
                 None => Err(ParseError::Window(WindowError::CloseWithoutWindow)),
-                Some(_frame) =>
-                    match _frame.len() {
-                        0 => Ok(()),
-                        residual =>
-                            Err(
-                                ParseError::Window(WindowError::CloseWithResidue {
-                                    residual,
-                                })
-                            ),
-                    }
+                Some(_frame) => match _frame.len() {
+                    0 => Ok(()),
+                    residual => Err(ParseError::Window(WindowError::CloseWithResidue {
+                        residual,
+                    })),
+                },
             }
         }
 
@@ -1236,14 +1237,11 @@ pub mod sliceparser {
 
         fn skip_exactly(&mut self, nbytes: usize) -> ParseResult<()> {
             match self.view_stack.peek_mut() {
-                None =>
-                    Err(
-                        ParseError::Window(WindowError::ConsumeWouldExceedLimit {
-                            offset: 0,
-                            requested: nbytes,
-                            limit: 0,
-                        })
-                    ),
+                None => Err(ParseError::Window(WindowError::ConsumeWouldExceedLimit {
+                    offset: 0,
+                    requested: nbytes,
+                    limit: 0,
+                })),
                 Some(frame) => {
                     let limit = frame.len();
                     if limit >= nbytes {
@@ -1253,13 +1251,11 @@ pub mod sliceparser {
                             Ok(())
                         }
                     } else {
-                        Err(
-                            ParseError::Window(WindowError::ConsumeWouldExceedLimit {
-                                limit,
-                                requested: nbytes,
-                                offset: 0,
-                            })
-                        )
+                        Err(ParseError::Window(WindowError::ConsumeWouldExceedLimit {
+                            limit,
+                            requested: nbytes,
+                            offset: 0,
+                        }))
                     }
                 }
             }
@@ -1271,7 +1267,7 @@ pub mod sliceparser {
 
 use byteparser::ByteParser;
 
-use crate::{ conv::error::DecodeError, dynamic::LenPref };
+use crate::{conv::error::DecodeError, dynamic::LenPref};
 
 use self::error::TokenError;
 
@@ -1280,7 +1276,10 @@ use self::error::TokenError;
 ///
 /// When no generic argument is provided, the default `Parser` type
 /// used is [`ByteParser`]
-pub trait TryIntoParser<P = ByteParser> where P: Parser {
+pub trait TryIntoParser<P = ByteParser>
+where
+    P: Parser,
+{
     type Error: Into<DecodeError>;
 
     /// Attempt to produce a parser object of type `P` over the bytes
@@ -1297,9 +1296,11 @@ pub trait TryIntoParser<P = ByteParser> where P: Parser {
     fn try_into_parser(self) -> std::result::Result<P, Self::Error>;
 }
 
-impl<P, T> TryIntoParser<P>
-    for T
-    where P: Parser, T: TryInto<P::Buffer>, T::Error: Into<DecodeError>
+impl<P, T> TryIntoParser<P> for T
+where
+    P: Parser,
+    T: TryInto<P::Buffer>,
+    T::Error: Into<DecodeError>,
 {
     type Error = <T as TryInto<P::Buffer>>::Error;
 
@@ -1311,11 +1312,11 @@ impl<P, T> TryIntoParser<P>
 #[cfg(test)]
 mod byteparser_ext_tests {
     use crate::conv::EncodeLength;
-    use crate::{ seq, Encode, Decode, Dynamic, u30, Sequence, FixedLength, MemoParser };
+    use crate::{seq, u30, Decode, Dynamic, Encode, FixedLength, MemoParser, Sequence};
 
-    use super::*;
-    use super::byteparser::ByteParser;
     use super::buffer::VecBuffer;
+    use super::byteparser::ByteParser;
+    use super::*;
 
     #[test]
     fn test_skip_exactly() {
@@ -1339,7 +1340,10 @@ mod byteparser_ext_tests {
     }
 
     impl Decode for Pair {
-        fn parse<P: Parser>(p: &mut P) -> ParseResult<Self> where Self: Sized {
+        fn parse<P: Parser>(p: &mut P) -> ParseResult<Self>
+        where
+            Self: Sized,
+        {
             let x0 = p.take_fixed::<2>()?;
             let x1 = p.take_i8()?;
             Ok(Pair(x0, x1))
@@ -1354,15 +1358,24 @@ mod byteparser_ext_tests {
 
     #[test]
     fn test_fast_kv_lookup() {
-        let src = Dynamic::<u30, Sequence<Pair>>::from(
-            seq![Pair([0xec, 0xad], 5), Pair([0x50, 0x50], 42)]
-        );
+        let src = Dynamic::<u30, Sequence<Pair>>::from(seq![
+            Pair([0xec, 0xad], 5),
+            Pair([0x50, 0x50], 42)
+        ]);
         let bytes = src.to_bytes_full();
         let mut p = MemoParser::from_buffer(VecBuffer::from(bytes.as_slice()));
         let Ok(_) = p.process_prefix::<u30>() else { panic!() };
-        assert_eq!(p.fast_kv_search::<[u8; 2], i8, _, 2, 1>(&[0x50, 0x50], i8::from_be_bytes).unwrap(), Some(42));
+        assert_eq!(
+            p.fast_kv_search::<[u8; 2], i8, _, 2, 1>(&[0x50, 0x50], i8::from_be_bytes)
+                .unwrap(),
+            Some(42)
+        );
         let mut p2 = MemoParser::from_buffer(VecBuffer::from(bytes.as_slice()));
         let Ok(_) = p2.process_prefix::<u30>() else { panic!() };
-        assert_eq!(p2.fast_kv_search::<[u8; 2], i8, _, 2, 1>(&[0x49, 0x51], i8::from_be_bytes).unwrap(), None);
+        assert_eq!(
+            p2.fast_kv_search::<[u8; 2], i8, _, 2, 1>(&[0x49, 0x51], i8::from_be_bytes)
+                .unwrap(),
+            None
+        );
     }
 }

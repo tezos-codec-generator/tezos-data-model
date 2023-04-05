@@ -7,13 +7,13 @@
 //! In both cases, the const generic `N` is the constant number of bytes
 //! such values invariably hold.
 
-use crate::conv::{ len, target::Target, Decode, Encode };
-use crate::parse::{ ParseResult, Parser };
-use std::borrow::Borrow;
-use std::convert::{ TryInto, TryFrom };
-use std::str::FromStr;
+use crate::conv::{len, target::Target, Decode, Encode};
+use crate::parse::{ParseResult, Parser};
 #[cfg(feature = "serde_impls")]
 use serde::Serialize;
+use std::borrow::Borrow;
+use std::convert::{TryFrom, TryInto};
+use std::str::FromStr;
 
 /// Simple type for holding fixed-length binary sequences.
 ///
@@ -30,15 +30,15 @@ use serde::Serialize;
 #[repr(transparent)]
 pub struct FixedBytes<const N: usize>([u8; N]);
 
-
 #[cfg(feature = "serde_impls")]
 impl<const N: usize> Serialize for FixedBytes<N> {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error> where S: serde::Serializer {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
         serializer.serialize_bytes(&self.0)
     }
 }
-
-
 
 impl<const N: usize> FixedBytes<N> {
     /// Constructs a [`FixedBytes<N>`] from a byte-array of length `N`.
@@ -103,22 +103,25 @@ impl<const N: usize> FixedBytes<N> {
         Self(*arr)
     }
 
-
     /// Attempts to construct a [`FixedBytes<N>`] by copying the bytes of a
     /// byte-slice whose length is presumptively equal to `N`.
     ///
     /// # Errors
     ///
     /// Returns [`WidthError::WrongWidth`] if `bytes.len() != N`.
-    pub const fn try_from_slice(bytes: &'_ [u8]) -> Result<FixedBytes<N>, crate::error::WidthError> {
+    pub const fn try_from_slice(
+        bytes: &'_ [u8],
+    ) -> Result<FixedBytes<N>, crate::error::WidthError> {
         if bytes.len() == N {
             let ptr = bytes.as_ptr() as *const [u8; N];
             unsafe { Ok(Self(*ptr)) }
         } else {
-            Err(crate::error::WidthError::WrongWidth { exact: N, actual: bytes.len() })
+            Err(crate::error::WidthError::WrongWidth {
+                exact: N,
+                actual: bytes.len(),
+            })
         }
     }
-
 
     /// Returns the length, in bytes, of this [FixedBytes<N>].
     ///
@@ -207,7 +210,10 @@ impl<const N: usize> From<FixedBytes<N>> for [u8; N] {
     }
 }
 
-impl<const N: usize> Default for FixedBytes<N> where [u8; N]: Default {
+impl<const N: usize> Default for FixedBytes<N>
+where
+    [u8; N]: Default,
+{
     fn default() -> Self {
         Self(Default::default())
     }
@@ -480,8 +486,8 @@ impl<const N: usize> std::fmt::Display for FixedString<N> {
 
 #[cfg(test)]
 mod fixedstring_tests {
-    use crate::{ Builder, StrictBuilder };
-    use std::{ borrow::Borrow, convert::TryFrom };
+    use crate::{Builder, StrictBuilder};
+    use std::{borrow::Borrow, convert::TryFrom};
 
     use super::*;
 
@@ -499,7 +505,10 @@ mod fixedstring_tests {
     fn check_arr<const N: usize>(case: &[u8; N]) {
         let res = FixedString::<N>::decode(case);
         assert_eq!(res, FixedString::from(case));
-        assert_eq!(<StrictBuilder as Borrow<[u8]>>::borrow(&res.encode::<StrictBuilder>()), case);
+        assert_eq!(
+            <StrictBuilder as Borrow<[u8]>>::borrow(&res.encode::<StrictBuilder>()),
+            case
+        );
     }
 
     #[test]
@@ -512,7 +521,10 @@ mod fixedstring_tests {
 #[cfg(test)]
 mod fixedbytes_tests {
     use super::*;
-    use crate::{ builder::{ strict::StrictBuilder, Builder }, hex };
+    use crate::{
+        builder::{strict::StrictBuilder, Builder},
+        hex,
+    };
 
     #[test]
     fn bytestring_hex() {
@@ -526,6 +538,9 @@ mod fixedbytes_tests {
     fn bytestring_ascii() {
         let b = FixedBytes::<12>::decode(b"hello world!");
         assert_eq!(b, FixedBytes::from(b"hello world!"));
-        assert_eq!(b.encode::<StrictBuilder>().into_bin().unwrap(), "hello world!");
+        assert_eq!(
+            b.encode::<StrictBuilder>().into_bin().unwrap(),
+            "hello world!"
+        );
     }
 }

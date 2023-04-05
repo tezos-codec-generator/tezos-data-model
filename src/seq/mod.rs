@@ -115,7 +115,7 @@ impl<T> Sequence<T> {
 
 impl<T, I> Index<I> for Sequence<T>
 where
-    I: std::slice::SliceIndex<[T]>
+    I: std::slice::SliceIndex<[T]>,
 {
     type Output = <I as std::slice::SliceIndex<[T]>>::Output;
 

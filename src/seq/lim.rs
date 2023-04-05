@@ -38,10 +38,6 @@ mod inner {
     /// Otherwise, it will default to `Vec<T>`
     #[cfg(not(feature = "arrayvec_limseq"))]
     pub type Inner<T, const N: usize> = Vec<T>;
-
-
-
-
 }
 
 /// Sequence type holding at most `N` elements of type `T`
@@ -114,12 +110,13 @@ impl<T, const N: usize> LimSeq<T, N> {
     ///
     /// This method will panic if the length of `value` exceeds `N`
     pub fn from_vec(value: Vec<T>) -> Self {
-        assert!(value.len() <= N, "cannot construct LimSeq from provided Vec without truncation");
+        assert!(
+            value.len() <= N,
+            "cannot construct LimSeq from provided Vec without truncation"
+        );
         unsafe { Self::from_vec_unchecked(value) }
     }
 }
-
-
 
 impl<T, const N: usize> IsBoundedSeq for LimSeq<T, N> {
     type Elem = T;

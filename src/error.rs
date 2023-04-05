@@ -25,6 +25,11 @@ pub enum WidthError {
     TooWide { limit: usize, actual: usize },
     /// Requirement of precise byte-width not satisfied
     WrongWidth { exact: usize, actual: usize },
+    /// Restriction to set of allowable byte-widths not satisfied
+    InvalidWidth {
+        valid: &'static [usize],
+        actual: usize,
+    },
 }
 
 impl Display for WidthError {
@@ -37,6 +42,12 @@ impl Display for WidthError {
                 write!(
                     f,
                     "{actual}-byte value violated requirement of {exact} bytes"
+                )
+            }
+            WidthError::InvalidWidth { valid, actual } => {
+                write!(
+                    f,
+                    "byte-length {actual} of value not in set {valid:?} of valid lengths"
                 )
             }
         }
@@ -184,16 +195,22 @@ impl<Ext: Debug> BoundsError<Ext> {
         let min_ext: Ext = min.into();
         let max_ext: Ext = max.into();
         let val_ext = val.try_into()?;
-        if min_ext > 0.into() {
-            if val_ext < 0.into() {
-                return Err(BoundsError::IllegalNegative { min: min_ext, val: val_ext });
+        if min_ext > (0).into() {
+            if val_ext < (0).into() {
+                return Err(BoundsError::IllegalNegative {
+                    min: min_ext,
+                    val: val_ext,
+                });
             } else if max_ext < min_ext {
                 return Err(Self::InvalidBounds {
-                min: min_ext,
-                max: max_ext,
-             });
+                    min: min_ext,
+                    max: max_ext,
+                });
             } else if val_ext > max_ext - min_ext {
-                return Err(Self::Overflow { max: max_ext - min_ext, val: val_ext });
+                return Err(Self::Overflow {
+                    max: max_ext - min_ext,
+                    val: val_ext,
+                });
             } else {
                 return Ok(val);
             }
@@ -274,7 +291,8 @@ impl<Ext: Debug + Display> Display for BoundsError<Ext> {
                 write!(
                     f,
                     "negative value {} cannot be interpreted as a positive offset from minimum bound {} > 0",
-                    val, min
+                    val,
+                    min
                 )
             }
         }

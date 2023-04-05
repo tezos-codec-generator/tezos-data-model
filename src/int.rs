@@ -693,6 +693,9 @@ mod tests {
 
         encode_decode(short_high_cases);
         assert_eq!(RangedInt::<u8, 256, 257>::from_underlying(0).to_i32(), 256);
-        assert_eq!(RangedInt::<u8, 256, 257>::from_underlying(0).to_underlying(), 0);
+        assert_eq!(
+            RangedInt::<u8, 256, 257>::from_underlying(0).to_underlying(),
+            0
+        );
     }
 }

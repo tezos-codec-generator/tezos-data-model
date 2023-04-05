@@ -31,10 +31,9 @@
 //! It is possible that more implementing types will be added
 //! in future, in which case they will be added to the above list.
 
-
-use std::string::FromUtf8Error;
 use crate::conv::target::Target;
 use crate::hexstring::util::hex_of_bytes;
+use std::string::FromUtf8Error;
 
 /// `Target` extension trait with monoidal concatenation
 ///

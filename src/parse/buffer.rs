@@ -67,7 +67,11 @@ impl<'a> SliceBuffer<'a> {
     ///
     /// Returns `None` if the `SliceBuffer` is empty
     pub const fn cut_first(&self) -> Option<(u8, Self)> {
-        if let [first, tail @ ..] = self.0 { Some((*first, Self(tail))) } else { None }
+        if let [first, tail @ ..] = self.0 {
+            Some((*first, Self(tail)))
+        } else {
+            None
+        }
     }
 
     /// Splits off the head byte of a `ByteSlice` without checking that it is non-empty
@@ -104,7 +108,10 @@ impl<'a> SliceBuffer<'a> {
     ///
     /// [undefined behavior]: https://doc.rust-lang.org/reference/behavior-considered-undefined.html
     pub unsafe fn split_unchecked(&self, mid: usize) -> (Self, Self) {
-        (Self(self.0.get_unchecked(..mid)), Self(self.0.get_unchecked(mid..)))
+        (
+            Self(self.0.get_unchecked(..mid)),
+            Self(self.0.get_unchecked(mid..)),
+        )
     }
 
     /// Extracts the first `N` indices of a `ByteSlice` and return them

@@ -1,4 +1,10 @@
-use crate::{parse::{cleanup::{LeftoverState, InvariantError}, error::ParseError}, error::HexConvError};
+use crate::{
+    error::HexConvError,
+    parse::{
+        cleanup::{InvariantError, LeftoverState},
+        error::ParseError,
+    },
+};
 
 #[derive(Clone, Debug)]
 #[non_exhaustive]
@@ -46,7 +52,11 @@ impl std::fmt::Display for DecodeError {
                 write!(f, "invariant failed during cleanup: {}", err)
             }
             DecodeError::NonEmpty(err) => {
-                write!(f, "parser object had non-empty left-over state on cleanup: {:?}", err)
+                write!(
+                    f,
+                    "parser object had non-empty left-over state on cleanup: {:?}",
+                    err
+                )
             }
         }
     }
@@ -73,5 +83,4 @@ mod test {
     fn decode_error_threadsafe() {
         dummy::<super::DecodeError>()
     }
-
 }

@@ -305,7 +305,8 @@ mod private {
         unsafe fn marshall_usize(bytes: &[u8]) -> usize {
             let bytes = <[u8; 4]>::try_from(bytes).unwrap_unchecked();
             let raw = i32::from_be_bytes(bytes);
-            let _ = crate::int::u30::try_from_i32(raw).expect("Inherent conversion from i32->u30 failed");
+            let _ = crate::int::u30::try_from_i32(raw)
+                .expect("Inherent conversion from i32->u30 failed");
             raw as usize
         }
     }

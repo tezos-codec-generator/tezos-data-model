@@ -332,7 +332,7 @@ pub mod z {
 
     #[cfg(test)]
     mod test {
-        use crate::{hex, Decode, HexString, Encode};
+        use crate::{hex, Decode, Encode, HexString};
 
         use super::*;
 

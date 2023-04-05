@@ -28,7 +28,7 @@
 //! `decode_derive`, and `estimable_derive`, which are only relevant within the context of this library,
 //! and otherwise offer no standalone functionality.
 
-use crate::parse::{ ParseResult, Parser, TryIntoParser };
+use crate::parse::{ParseResult, Parser, TryIntoParser};
 
 use self::target::Target;
 
@@ -269,7 +269,9 @@ pub trait Decode {
     ///
     /// In rare cases, it may be necessary to return newly minted `ParseError`
     /// values based on certain invariants of the type being parsed.
-    fn parse<P: Parser>(p: &mut P) -> ParseResult<Self> where Self: Sized;
+    fn parse<P: Parser>(p: &mut P) -> ParseResult<Self>
+    where
+        Self: Sized;
 
     /// Attempt to decode a value of the `Self` type from a value `input` of the
     /// generic type `U: TryIntoParser<P>`.
@@ -289,7 +291,11 @@ pub trait Decode {
     /// If this method call returns an error, or returns successfully but indicates
     /// an incomplete parse, an appropriate [`DecodeError`] will be returned.
     fn try_decode<U, P>(input: U) -> DecodeResult<Self>
-        where Self: Sized, P: Parser, U: TryIntoParser<P>, error::DecodeError: From<U::Error>
+    where
+        Self: Sized,
+        P: Parser,
+        U: TryIntoParser<P>,
+        error::DecodeError: From<U::Error>,
     {
         let mut p: P = input.try_into_parser()?;
         let ret = Self::parse(&mut p)?;
@@ -319,10 +325,10 @@ pub trait Decode {
     /// [`MemoParser`]: crate::parse::memoparser::MemoParser
     /// [`ByteParser`]: crate::parse::memoparser::ByteParser
     fn decode_memo<U>(inp: U) -> Self
-        where
-            Self: Sized,
-            U: TryIntoParser<crate::parse::memoparser::MemoParser>,
-            error::DecodeError: From<U::Error>
+    where
+        Self: Sized,
+        U: TryIntoParser<crate::parse::memoparser::MemoParser>,
+        error::DecodeError: From<U::Error>,
     {
         Self::try_decode(inp).unwrap_or_else(|_| {
             panic!(
@@ -346,7 +352,10 @@ pub trait Decode {
     ///
     /// [`ByteParser`]: crate::parse::memoparser::ByteParser
     fn decode<U>(inp: U) -> Self
-        where Self: Sized, U: TryIntoParser, error::DecodeError: From<U::Error>
+    where
+        Self: Sized,
+        U: TryIntoParser,
+        error::DecodeError: From<U::Error>,
     {
         Self::try_decode(inp).unwrap_or_else(|err| {
             panic!(
@@ -420,10 +429,17 @@ impl<T: Decode> Decode for Option<T> {
 
 #[cfg(test)]
 mod test {
-    use crate::{ Builder, Encode, StrictBuilder };
+    use crate::{Builder, Encode, StrictBuilder};
 
     #[test]
     fn check() {
-        assert_eq!(b"foo".to_vec().encode::<StrictBuilder>().into_bin().unwrap(), "foo");
+        assert_eq!(
+            b"foo"
+                .to_vec()
+                .encode::<StrictBuilder>()
+                .into_bin()
+                .unwrap(),
+            "foo"
+        );
     }
 }

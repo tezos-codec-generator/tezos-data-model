@@ -93,7 +93,6 @@ impl Decode for () {
             { () }
         }
     }
-
 }
 
 impl Encode for bool {

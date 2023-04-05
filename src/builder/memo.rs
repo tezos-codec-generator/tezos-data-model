@@ -34,7 +34,9 @@ impl MemoBuilder {
     #[must_use]
     #[inline]
     pub fn new() -> Self {
-        Self { segs: SplitVec::new() }
+        Self {
+            segs: SplitVec::new(),
+        }
     }
 }
 
@@ -51,7 +53,6 @@ impl std::fmt::Display for MemoBuilder {
         write!(f, "{}", &self.segs)
     }
 }
-
 
 impl From<MemoBuilder> for Vec<u8> {
     fn from(val: MemoBuilder) -> Self {
