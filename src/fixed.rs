@@ -46,8 +46,8 @@ impl<const N: usize> FixedBytes<N> {
     /// # Examples
     ///
     /// ```
-    /// # use tedium::fixed::FixedBytes;
-    /// assert_eq!(FixedBytes::from_array([1, 2, 3u8]).as_slice(), &[1, 2, 3u8]);
+    /// # use tedium::FixedBytes;
+    /// assert_eq!(FixedBytes::from_array([1, 2, 3u8]).bytes(), &[1, 2, 3u8]);
     /// ```
     #[inline(always)]
     #[must_use]
@@ -60,9 +60,9 @@ impl<const N: usize> FixedBytes<N> {
     /// # Examples
     ///
     /// ```
-    /// # use tedium
+    /// # use tedium::FixedBytes;
     /// let arr : [u8; 4] = [0xde, 0xad, 0xbe, 0xef];
-    /// assert_eq!(FixedBytes::from_array(&arr).bytes(), arr);
+    /// assert_eq!(FixedBytes::from_array_ref(&arr).bytes(), &arr);
     /// ```
     #[inline]
     #[must_use]
@@ -75,9 +75,9 @@ impl<const N: usize> FixedBytes<N> {
     /// # Examples
     ///
     /// ```
-    /// # use tediumedBytes;
+    /// # use tedium::FixedBytes;
     /// let arr : [u8; 4] = [0xde, 0xad, 0xbe, 0xef];
-    /// let mut data = FixedBytes::from_array(&arr);
+    /// let mut data = FixedBytes::from_array_ref(&arr);
     /// data.bytes_mut()[0] = 0xec;
     /// assert_eq!(data.bytes(), &[0xec, 0xad, 0xbe, 0xef]);
     /// ```
@@ -93,9 +93,9 @@ impl<const N: usize> FixedBytes<N> {
     /// # Examples
     ///
     /// ```
-    /// # use tedium::fixed::FixedBytes;
+    /// # use tedium::FixedBytes;
     /// let bytes : &'static [u8; 11] = b"hello world";
-    /// assert_eq!(FixedBytes::from_slice(bytes).as_slice(), bytes);
+    /// assert_eq!(FixedBytes::from_array_ref(bytes).bytes(), bytes);
     /// ```
     #[inline(always)]
     #[must_use]
@@ -148,7 +148,7 @@ impl<const N: usize> FixedBytes<N> {
     ///
     /// ```
     /// # use tedium::fixed::FixedBytes;
-    /// let data : FixedBytes<4> = FixedBytes::from_slice(&[0xde, 0xad, 0xbe, 0xef]);
+    /// let data : FixedBytes<4> = FixedBytes::from_array_ref(&[0xde, 0xad, 0xbe, 0xef]);
     /// assert_eq!(data.to_array(), [0xde, 0xad, 0xbe, 0xef]);
     /// ```
     #[inline(always)]
@@ -301,7 +301,7 @@ impl<const N: usize> FixedString<N> {
     /// byte-array cannot be statically promised or guaranteed to be valid as
     /// UTF-8 data.
     ///
-    /// If such guarantees are not possible, [try_from_array] should be used instead.
+    /// If such guarantees are not possible, [`try_from_array`] should be used instead.
     #[must_use]
     #[inline(always)]
     pub const unsafe fn from_array_unchecked(arr: &[u8; N]) -> Self {
@@ -323,7 +323,7 @@ impl<const N: usize> FixedString<N> {
     ///
     ///
     /// let haiku : FixedString<51> = FixedString::try_from_array(MOGAMI_ARR).unwrap();
-    /// assert_eq!(haiku.as_str(), MOGAMI_STR);
+    /// assert_eq!(haiku.as_string_lossy(), MOGAMI_STR);
     /// ```
     #[inline]
     pub const fn try_from_array(arr: &[u8; N]) -> Result<Self, std::str::Utf8Error> {
@@ -340,9 +340,10 @@ impl<const N: usize> FixedString<N> {
     ///
     /// ```
     /// # use tedium::fixed::FixedString;
-    /// let valid : FixedString::<4> = FixedString::from_str("🦀");
-    /// assert_eq!(valid.is_valid_utf8());
-    /// let invalid : FixedString::<1> = FixedString::from_array_unchecked([0x00]);
+    /// # use std::str::FromStr;
+    /// let valid : FixedString::<4> = unsafe { FixedString::from_str("🦀").unwrap_unchecked() };
+    /// assert!(valid.is_valid_utf8());
+    /// let invalid : FixedString::<1> = unsafe { FixedString::from_array_unchecked(&[0xff]) };
     /// assert!(!invalid.is_valid_utf8());
     /// ```
     pub const fn is_valid_utf8(&self) -> bool {
@@ -361,9 +362,10 @@ impl<const N: usize> FixedString<N> {
     /// # Examples
     ///
     /// ```
-    /// # use ::tedium::fixed::FixedString;
+    /// # use tedium::FixedString;
+    /// # use std::str::FromStr;
     /// let text : &'static str = "hello world";
-    /// assert_eq!(unsafe { FixedString::from_str(text).as_str_unchecked() }, str);
+    /// assert_eq!(unsafe { FixedString::<11>::from_str(text).unwrap_unchecked().as_str_unchecked() }, text);
     /// ```
     pub unsafe fn as_str_unchecked(&self) -> &str {
         std::str::from_utf8_unchecked(&self.contents)
@@ -377,9 +379,9 @@ impl<const N: usize> FixedString<N> {
     ///
     /// ```
     /// # use ::tedium::fixed::FixedString;
-    /// let arr : [u8; 4] = [0x00, 0x61, 0xec, 0xad]
-    /// let data : FixedString<4> = FixedString::from_array_unchecked(arr);
-    /// assert_eq!(data.as_string_lossy(), Cow::Owned(String::from("\x00a�"))
+    /// let arr : [u8; 4] = [0x00, 0x61, 0xec, 0xad];
+    /// let data : FixedString<4> = unsafe { FixedString::from_array_unchecked(&arr) };
+    /// assert_eq!(data.as_string_lossy(), std::borrow::Cow::<'_, str>::Owned(String::from("\x00a�")))
     /// ```
     pub fn as_string_lossy(&self) -> std::borrow::Cow<'_, str> {
         String::from_utf8_lossy(&self.contents)

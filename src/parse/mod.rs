@@ -616,7 +616,6 @@ pub mod cleanup {
         }
     }
 
-    #[derive(Clone)]
     pub enum InvariantError {
         ErrorCaseUnexpected(super::error::WindowError),
         ErrorKindUnexpected(super::error::ParseError),

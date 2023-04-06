@@ -23,7 +23,7 @@ use crate::error::{BoundsError, LengthError, WidthError};
 /// Enumeration type over all errors that may be encountered when calling
 /// methods on `Parser` types, or implementation-specific helper types for
 /// `Parser` implementors.
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub enum ParseError {
     /// Error class encountered when opening, closing, or checking context windows.
     Window(WindowError),
@@ -335,7 +335,7 @@ pub(crate) fn coerce_slice<const N: usize>(bytes: &'_ [u8]) -> ParseResult<[u8; 
 /// succesfully executed method calls to a Parser object. These typically indicate that
 /// the actual byte content of the buffer differs from the byte content that is considered
 /// valid in the context imposed by a particular parse method call or combination thereof.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug)]
 pub enum ExternalError {
     /// Error scenario in which a coercion from `&[u8]` to `String` performed on the result
     /// of a `consume` operation could not be performed for the specified reason (`FromUtf8Error`).
@@ -352,6 +352,8 @@ pub enum ExternalError {
     /// Error scenario in which a trivial type-conversion could not be performed without implicitly
     /// violating a type-level (schema-level) constraint on the element-count the target type.
     LengthViolation(LengthError),
+    /// Any other case that cannot be explicitly listed in this library due to downstream crate specifics
+    GenericError(Box<dyn Send + Sync + std::error::Error>)
 }
 
 impl<T> From<T> for ParseError
@@ -415,6 +417,9 @@ impl Display for ExternalError {
             ExternalError::WidthViolation(x) => {
                 write!(f, "{}", x)
             }
+            ExternalError::GenericError(e) => {
+                write!(f, "{}", e)
+            }
         }
     }
 }
@@ -427,6 +432,8 @@ impl Error for ExternalError {
             ExternalError::FloatRangeViolation(err) => Some(err),
             ExternalError::WidthViolation(err) => Some(err),
             ExternalError::LengthViolation(err) => Some(err),
+            ExternalError::GenericError(err) => Some(err.as_ref()),
+
         }
     }
 }

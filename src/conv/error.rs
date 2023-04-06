@@ -6,7 +6,7 @@ use crate::{
     },
 };
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 #[non_exhaustive]
 pub enum DecodeError {
     Conv(HexConvError),
