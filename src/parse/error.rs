@@ -46,6 +46,17 @@ pub enum ParseError {
     Token(TokenError),
 }
 
+impl ParseError {
+    /// Constructs a [`ParseError`] from a generic, abstract Error value.
+    ///
+    /// Note that this method should not be used blindly, as certain Error types
+    /// might have better conversions into ParseError (e.g. any error type defined in
+    /// this library as part of the ParseError hierarchy).
+    pub fn reify<E: 'static + Error + Send + Sync>(err: E) -> Self {
+        Self::External(ExternalError::GenericError(err.into()))
+    }
+}
+
 impl Display for ParseError {
     fn fmt(&self, f: &mut Formatter) -> Result {
         match self {
