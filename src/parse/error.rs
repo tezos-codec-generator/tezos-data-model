@@ -438,6 +438,12 @@ impl Error for ExternalError {
     }
 }
 
+impl From<Box<dyn Error + Send + Sync>> for ExternalError {
+    fn from(value: Box<dyn Error + Send + Sync>) -> Self {
+        Self::GenericError(value)
+    }
+}
+
 /// Sealed trait on types used for enum tags
 ///
 /// Marker trait on [`u8`], [`u16`], and [`u32`] (representing [`u30`][uthirty])
