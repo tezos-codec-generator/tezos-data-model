@@ -68,6 +68,8 @@
 use crate::conv::target::Target;
 use crate::conv::{len::Estimable, Decode, Encode};
 use crate::parse::{ParseResult, Parser};
+#[cfg(feature = "serde_impls")]
+use serde::Serialize;
 use std::fmt::Debug;
 use std::ops::{Deref, DerefMut};
 
@@ -361,6 +363,14 @@ impl<T: Decode> Decode for Nullable<T> {
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 #[repr(transparent)]
 pub struct Bytes(Vec<u8>);
+
+#[cfg(feature = "serde_impls")]
+impl Serialize for Bytes {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error> where S: serde::Serializer {
+        serializer.serialize_bytes(&self.0)
+    }
+}
+
 
 impl Bytes {
     /// Constructs a new, empty byte-sequence
