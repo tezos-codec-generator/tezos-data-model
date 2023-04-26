@@ -396,6 +396,30 @@ impl Bytes {
     }
 }
 
+impl AsRef<Vec<u8>> for Bytes {
+    fn as_ref(&self) -> &Vec<u8> {
+        &self.0
+    }
+}
+
+impl AsMut<Vec<u8>> for Bytes {
+    fn as_mut(&mut self) -> &mut Vec<u8> {
+        &mut self.0
+    }
+}
+
+impl AsRef<[u8]> for Bytes {
+    fn as_ref(&self) -> &[u8] {
+        self.0.as_ref()
+    }
+}
+
+impl AsMut<[u8]> for Bytes {
+    fn as_mut(&mut self) -> &mut [u8] {
+        self.0.as_mut()
+    }
+}
+
 impl Deref for Bytes {
     type Target = [u8];
 
